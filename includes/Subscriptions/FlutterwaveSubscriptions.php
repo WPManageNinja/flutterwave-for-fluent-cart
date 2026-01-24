@@ -89,8 +89,6 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'subscription' => $subscription
         ]);
 
-        // Store tx_ref for later verification
-        $transaction->updateMeta('flutterwave_tx_ref', $txRef);
 
         return [
             'status'       => 'success',

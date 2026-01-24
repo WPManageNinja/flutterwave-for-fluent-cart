@@ -66,8 +66,6 @@ class FlutterwaveProcessor
             'transaction' => $transaction
         ]);
 
-        // Store tx_ref in transaction meta for later verification
-        $transaction->updateMeta('flutterwave_tx_ref', $txRef);
 
         return [
             'status'       => 'success',

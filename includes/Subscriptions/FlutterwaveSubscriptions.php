@@ -323,7 +323,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        $response = FlutterwaveAPI::cancelSubscription($vendorSubscriptionId);
+        $response = FlutterwaveAPI::updateFlutterwaveObject('subscriptions/' . $vendorSubscriptionId . '/cancel');
 
         if (is_wp_error($response)) {
             fluent_cart_add_log(

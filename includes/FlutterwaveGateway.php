@@ -16,6 +16,7 @@ use FluentCart\App\Helpers\Helper;
 use FluentCart\App\Helpers\Status;
 use FluentCart\Framework\Support\Arr;
 use FluentCart\App\Services\Payments\PaymentInstance;
+use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractPaymentGateway;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
 use FlutterwaveFluentCart\Subscriptions\FlutterwaveSubscriptions;
@@ -40,6 +41,12 @@ class FlutterwaveGateway extends AbstractPaymentGateway
             new FlutterwaveSettingsBase(),
             new FlutterwaveSubscriptions()
         );
+
+        // Register as custom checkout button provider to hide default "Place Order" button
+        add_filter('fluent_cart/payment_methods_with_custom_checkout_buttons', function ($methods) {
+            $methods[] = 'flutterwave';
+            return $methods;
+        });
     }
 
     public function meta(): array
@@ -154,14 +161,25 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         $transaction = Arr::get($data, 'transaction', null);
         $mode = (new Settings\FlutterwaveSettingsBase())->getMode();
         $baseUrl = $mode === 'live' 
-            ? 'https://dashboard.flutterwave.com/transactions/' 
-            : 'https://dashboard.flutterwave.com/test-mode/transactions/';
+            ? 'https://app.flutterwave.com/dashboard/transactions/list/' 
+            : 'https://app.flutterwave.com/dashboard/transactions/list/';
 
         if (!$transaction) {
             return $baseUrl;
         }
 
         $paymentId = $transaction->vendor_charge_id;
+
+        if ($transaction->status === Status::TRANSACTION_REFUNDED) {
+            $parentTransaction = OrderTransaction::query()
+                ->where('id', Arr::get($transaction->meta, 'parent_id'))
+                ->first();
+            if ($parentTransaction) {
+                $paymentId = $parentTransaction->vendor_charge_id;
+            } else {
+                return $baseUrl;
+            }
+        }
 
         return $baseUrl . $paymentId;
     }
@@ -171,8 +189,8 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         $subscription = Arr::get($data, 'subscription', null);
         $mode = (new Settings\FlutterwaveSettingsBase())->getMode();
         $baseUrl = $mode === 'live' 
-            ? 'https://dashboard.flutterwave.com/subscriptions/' 
-            : 'https://dashboard.flutterwave.com/test-mode/subscriptions/';
+            ? 'https://app.flutterwave.com/dashboard/subscriptions/list/' 
+            : 'https://app.flutterwave.com/dashboard/subscriptions/list/';
 
         if (!$subscription || !$subscription->vendor_subscription_id) {
             return $baseUrl;

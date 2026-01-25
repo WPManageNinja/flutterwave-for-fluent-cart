@@ -99,6 +99,11 @@ class FlutterwaveAPI
         return self::request($endpoint, 'POST', $data);
     }
 
+    public static function updateFlutterwaveObject($endpoint, $data = [])
+    {
+        return self::request($endpoint, 'PUT', $data);
+    }
+
     public static function deleteFlutterwaveObject($endpoint, $data = [])
     {
         return self::request($endpoint, 'DELETE', $data);
@@ -154,14 +159,6 @@ class FlutterwaveAPI
     public static function getPaymentPlan($planId)
     {
         return self::getFlutterwaveObject('payment-plans/' . $planId);
-    }
-
-    /**
-     * Cancel a subscription
-     */
-    public static function cancelSubscription($subscriptionId)
-    {
-        return self::createFlutterwaveObject('subscriptions/' . $subscriptionId . '/cancel');
     }
 
     /**

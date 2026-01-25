@@ -1,6 +1,9 @@
-class FlutterwaveCheckout {
+class FctFlutterwaveHandler {
     #cdnUrl = 'https://checkout.flutterwave.com/v3.js';
     #publicKey = null;
+    #flwCheckout = null;
+    #isProcessing = false;
+
     constructor(form, orderHandler, response, paymentLoader) {
         this.form = form;
         this.orderHandler = orderHandler;
@@ -12,29 +15,226 @@ class FlutterwaveCheckout {
     }
 
     init() {
-        this.paymentLoader.enableCheckoutButton(this.translate(this.submitButton.text));
         const flutterwaveContainer = document.querySelector('.fluent-cart-checkout_embed_payment_container_flutterwave');
         const hasCustomContent = flutterwaveContainer && flutterwaveContainer.dataset.hasCustomContent === 'true';
+        
         if (flutterwaveContainer && !hasCustomContent) {
             flutterwaveContainer.innerHTML = '';
-            this.renderPaymentInfo();
+            this.renderPaymentButton(flutterwaveContainer);
         }
 
         this.#publicKey = this.data?.payment_args?.public_key;
 
-        window.addEventListener("fluent_cart_payment_next_action_flutterwave", async (e) => {
-            const remoteResponse = e.detail?.response;
-            const flutterwaveData = remoteResponse?.data?.flutterwave_data;
-            const intent = remoteResponse?.data?.intent;
+        // Preload Flutterwave script
+        this.loadFlutterwaveScript().catch(() => {});
+    }
 
-            if (flutterwaveData) {
-                if (intent === 'onetime') {
-                    this.onetimePaymentHandler(flutterwaveData);
-                } else if (intent === 'subscription') {
-                    this.subscriptionPaymentHandler(flutterwaveData);
+    renderPaymentButton(container) {
+        const that = this;
+
+        // Create payment info section
+        this.renderPaymentInfo();
+
+        // Create custom Pay button
+        const buttonWrapper = document.createElement('div');
+        buttonWrapper.className = 'fct-flutterwave-button-wrapper';
+        buttonWrapper.style.cssText = 'margin-top: 16px; text-align: center;';
+
+        const payButton = document.createElement('button');
+        payButton.type = 'button';
+        payButton.id = 'fct-flutterwave-pay-button';
+        payButton.className = 'fct-flutterwave-pay-button';
+        payButton.innerHTML = `
+            <span class="fct-flw-btn-text">${this.$t('Pay with Flutterwave')}</span>
+            <span class="fct-flw-btn-loader" style="display: none;">
+                <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <style>.spinner{transform-origin:center;animation:spinner .75s linear infinite}@keyframes spinner{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
+                    <circle class="spinner" cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4 31.4"/>
+                </svg>
+            </span>
+        `;
+
+        // Button styles
+        const buttonStyles = document.createElement('style');
+        buttonStyles.textContent = `
+            .fct-flutterwave-pay-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                width: 100%;
+                padding: 14px 24px;
+                font-size: 16px;
+                font-weight: 600;
+                color: #fff;
+                background: linear-gradient(135deg, #F5A623 0%, #FF8C00 100%);
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                min-height: 50px;
+            }
+            .fct-flutterwave-pay-button:hover:not(:disabled) {
+                background: linear-gradient(135deg, #FF8C00 0%, #F5A623 100%);
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(245, 166, 35, 0.4);
+            }
+            .fct-flutterwave-pay-button:disabled {
+                opacity: 0.7;
+                cursor: not-allowed;
+            }
+            .fct-flutterwave-pay-button:active:not(:disabled) {
+                transform: translateY(0);
+            }
+            .fct-flw-btn-loader svg {
+                display: block;
+            }
+            .fct-flutterwave-extra-text {
+                text-align: center;
+                margin-top: 10px;
+                font-size: 13px;
+                color: #666;
+            }
+        `;
+        container.appendChild(buttonStyles);
+
+        // Click handler - calls orderHandler first, then opens Flutterwave
+        payButton.addEventListener('click', async () => {
+            if (that.#isProcessing) return;
+            await that.handlePayButtonClick(payButton);
+        });
+
+        buttonWrapper.appendChild(payButton);
+        container.appendChild(buttonWrapper);
+
+        // Extra text
+        const extraText = document.createElement('p');
+        extraText.className = 'fct-flutterwave-extra-text';
+        extraText.textContent = this.$t('Click to pay securely with Flutterwave');
+        container.appendChild(extraText);
+
+        // Dispatch success event
+        window.dispatchEvent(new CustomEvent('fluent_cart_payment_method_loading_success', {
+            detail: { payment_method: 'flutterwave' }
+        }));
+
+        // Remove loading text
+        const loadingElement = document.getElementById('fct_loading_payment_processor');
+        if (loadingElement) {
+            loadingElement.remove();
+        }
+    }
+
+    async handlePayButtonClick(button) {
+        const that = this;
+        this.#isProcessing = true;
+
+        // Show loading state on button
+        const btnText = button.querySelector('.fct-flw-btn-text');
+        const btnLoader = button.querySelector('.fct-flw-btn-loader');
+        btnText.textContent = this.$t('Processing...');
+        btnLoader.style.display = 'inline-block';
+        button.disabled = true;
+
+        try {
+            // Call orderHandler to create order first (like PayPal does)
+            if (typeof this.orderHandler !== 'function') {
+                throw new Error(this.$t('Order handler not available'));
+            }
+
+            const orderResponse = await this.orderHandler();
+            
+            if (!orderResponse) {
+                throw new Error(this.$t('Order creation failed'));
+            }
+
+            // Get flutterwave data from response
+            const flutterwaveData = orderResponse?.data?.flutterwave_data;
+            const intent = orderResponse?.data?.intent;
+
+            if (!flutterwaveData) {
+                throw new Error(this.$t('Payment data not received'));
+            }
+
+            // Load Flutterwave script if not loaded
+            await this.loadFlutterwaveScript();
+
+            // Open Flutterwave popup based on intent
+            if (intent === 'subscription') {
+                this.openFlutterwavePopup(flutterwaveData, true);
+            } else {
+                this.openFlutterwavePopup(flutterwaveData, false);
+            }
+
+        } catch (error) {
+            console.error('Flutterwave payment error:', error);
+            this.handleFlutterwaveError(error);
+            this.resetPayButton(button);
+        }
+    }
+
+    resetPayButton(button) {
+        this.#isProcessing = false;
+        const btnText = button.querySelector('.fct-flw-btn-text');
+        const btnLoader = button.querySelector('.fct-flw-btn-loader');
+        btnText.textContent = this.$t('Pay with Flutterwave');
+        btnLoader.style.display = 'none';
+        button.disabled = false;
+    }
+
+    openFlutterwavePopup(flutterwaveData, isSubscription = false) {
+        const that = this;
+        const button = document.getElementById('fct-flutterwave-pay-button');
+
+        // Build config per Flutterwave Inline docs:
+        // https://developer.flutterwave.com/v3.0/docs/inline
+        const config = {
+            public_key: flutterwaveData.public_key,
+            tx_ref: flutterwaveData.tx_ref,
+            amount: flutterwaveData.amount,
+            currency: flutterwaveData.currency,
+            customer: flutterwaveData.customer,
+            meta: flutterwaveData.meta,
+            customizations: flutterwaveData.customizations,
+            // Callback is called when payment completes (while modal still open)
+            callback: function(response) {
+                // Response contains: transaction_id, tx_ref, flw_ref, status, amount, currency, customer
+                that.handlePaymentSuccess(response);
+            },
+            // onclose is called when customer closes modal
+            // incomplete=true means payment was not completed
+            onclose: function(incomplete) {
+                if (incomplete) {
+                    that.handlePaymentCancel();
+                    if (button) that.resetPayButton(button);
                 }
             }
-        });
+        };
+
+        // Add payment_options if specified (e.g., 'card, mobilemoneyghana, ussd')
+        if (flutterwaveData.payment_options) {
+            config.payment_options = flutterwaveData.payment_options;
+        }
+
+        // Add payment_plan for subscriptions (recurring payments)
+        if (isSubscription && flutterwaveData.payment_plan) {
+            config.payment_plan = flutterwaveData.payment_plan;
+        }
+
+        // Add configurations for session timeout and max retry (optional)
+        // session_duration: max 1440 minutes, max_retry_attempt: number of retries
+        if (flutterwaveData.configurations) {
+            config.configurations = flutterwaveData.configurations;
+        }
+
+        try {
+            // FlutterwaveCheckout returns an object with close() method
+            this.#flwCheckout = window.FlutterwaveCheckout(config);
+        } catch (error) {
+            console.error('Error opening Flutterwave popup:', error);
+            this.handleFlutterwaveError(error);
+            if (button) this.resetPayButton(button);
+        }
     }
 
     translate(string) {
@@ -184,110 +384,54 @@ class FlutterwaveCheckout {
 
     loadFlutterwaveScript() {
         return new Promise((resolve, reject) => {
-            if (typeof FlutterwaveCheckout !== 'undefined' && window.FlutterwaveCheckout) {
+            // Check if Flutterwave SDK is already loaded
+            if (typeof window.FlutterwaveCheckout === 'function') {
                 resolve();
                 return;
             }
 
             const existingScript = document.querySelector(`script[src="${this.#cdnUrl}"]`);
             if (existingScript) {
-                existingScript.addEventListener('load', resolve);
+                // Script tag exists, wait for it to load
+                if (typeof window.FlutterwaveCheckout === 'function') {
+                    resolve();
+                    return;
+                }
+                existingScript.addEventListener('load', () => resolve());
                 existingScript.addEventListener('error', () => reject(new Error('Failed to load Flutterwave script')));
                 return;
             }
 
             const script = document.createElement('script');
             script.src = this.#cdnUrl;
-            script.onload = () => {
-                resolve();
-            };
-            script.onerror = () => {
-                reject(new Error('Failed to load Flutterwave script'));
-            };
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error('Failed to load Flutterwave script'));
 
             document.head.appendChild(script);
         });
     }
 
-    async onetimePaymentHandler(flutterwaveData) {
-        try {
-            await this.loadFlutterwaveScript();
-        } catch (error) {
-            console.error('Flutterwave script failed to load:', error);
-            this.handleFlutterwaveError(error);
-            return;
-        }
-
-        const that = this;
-
-        try {
-            // Use Flutterwave Inline popup
-            window.FlutterwaveCheckout({
-                public_key: flutterwaveData.public_key,
-                tx_ref: flutterwaveData.tx_ref,
-                amount: flutterwaveData.amount,
-                currency: flutterwaveData.currency,
-                customer: flutterwaveData.customer,
-                meta: flutterwaveData.meta,
-                customizations: flutterwaveData.customizations,
-                callback: function(response) {
-                    // Payment completed - verify and confirm
-                    that.handlePaymentSuccess(response);
-                },
-                onclose: function() {
-                    // User closed the popup without completing payment
-                    that.handlePaymentCancel();
-                }
-            });
-        } catch (error) {
-            console.error('Error opening Flutterwave popup:', error);
-            this.handleFlutterwaveError(error);
-        }
-    }
-
-    async subscriptionPaymentHandler(flutterwaveData) {
-        try {
-            await this.loadFlutterwaveScript();
-        } catch (error) {
-            console.error('Flutterwave script failed to load:', error);
-            this.handleFlutterwaveError(error);
-            return;
-        }
-
-        const that = this;
-
-        try {
-            // Use Flutterwave Inline popup with payment plan for subscriptions
-            window.FlutterwaveCheckout({
-                public_key: flutterwaveData.public_key,
-                tx_ref: flutterwaveData.tx_ref,
-                amount: flutterwaveData.amount,
-                currency: flutterwaveData.currency,
-                payment_plan: flutterwaveData.payment_plan,
-                customer: flutterwaveData.customer,
-                meta: flutterwaveData.meta,
-                customizations: flutterwaveData.customizations,
-                callback: function(response) {
-                    // Subscription payment completed - verify and confirm
-                    that.handlePaymentSuccess(response);
-                },
-                onclose: function() {
-                    // User closed the popup without completing payment
-                    that.handlePaymentCancel();
-                }
-            });
-        } catch (error) {
-            console.error('Error opening Flutterwave subscription popup:', error);
-            this.handleFlutterwaveError(error);
-        }
-    }
-
     handlePaymentSuccess(response) {
+        // Close the modal if still open
+        if (this.#flwCheckout && typeof this.#flwCheckout.close === 'function') {
+            this.#flwCheckout.close();
+        }
+
+        this.paymentLoader?.changeLoaderStatus(this.$t('Verifying payment...'));
+
+        // Update button state
+        const button = document.getElementById('fct-flutterwave-pay-button');
+        if (button) {
+            const btnText = button.querySelector('.fct-flw-btn-text');
+            if (btnText) btnText.textContent = this.$t('Verifying payment...');
+        }
+
         // response contains: transaction_id, tx_ref, flw_ref, status
         const params = new URLSearchParams({
             action: 'fluent_cart_confirm_flutterwave_payment',
             transaction_id: response.transaction_id || '',
             tx_ref: response.tx_ref || '',
+            flw_ref: response.flw_ref || '',
             flutterwave_fct_nonce: window.fct_flutterwave_data?.nonce
         });
 
@@ -301,17 +445,29 @@ class FlutterwaveCheckout {
                 try {
                     const res = JSON.parse(xhr.responseText);
                     if (res?.redirect_url) {
-                        that.paymentLoader.triggerPaymentCompleteEvent(res);
-                        that.paymentLoader?.changeLoaderStatus('redirecting');
-                        window.location.href = res.redirect_url;
+                        that.paymentLoader?.triggerPaymentCompleteEvent(res);
+                        that.paymentLoader?.changeLoaderStatus(that.$t('Payment successful! Redirecting...'));
+                        
+                        // Handle redirect based on checkout mode (modal or single page)
+                        if (window.CheckoutHelper) {
+                            window.CheckoutHelper.handleCheckoutRedirect(res.redirect_url);
+                        } else {
+                            window.location.href = res.redirect_url;
+                        }
                     } else {
                         that.handleFlutterwaveError(new Error(res?.message || 'Payment confirmation failed'));
+                        const btn = document.getElementById('fct-flutterwave-pay-button');
+                        if (btn) that.resetPayButton(btn);
                     }
                 } catch (error) {
                     that.handleFlutterwaveError(error);
+                    const btn = document.getElementById('fct-flutterwave-pay-button');
+                    if (btn) that.resetPayButton(btn);
                 }
             } else {
                 that.handleFlutterwaveError(new Error(that.$t('Network error: ' + xhr.status)));
+                const btn = document.getElementById('fct-flutterwave-pay-button');
+                if (btn) that.resetPayButton(btn);
             }
         };
 
@@ -323,17 +479,23 @@ class FlutterwaveCheckout {
                 console.error('An error occurred:', e);
                 that.handleFlutterwaveError(e);
             }
+            const btn = document.getElementById('fct-flutterwave-pay-button');
+            if (btn) that.resetPayButton(btn);
         };
 
         xhr.send(params.toString());
     }
 
     handlePaymentCancel() {
-        this.paymentLoader.hideLoader();
-        this.paymentLoader.enableCheckoutButton(this.submitButton.text);
+        this.#isProcessing = false;
+        this.paymentLoader?.changeLoaderStatus(this.$t('Payment cancelled'));
+        this.paymentLoader?.hideLoader();
+        this.paymentLoader?.enableCheckoutButton();
     }
 
     handleFlutterwaveError(err) {
+        this.#isProcessing = false;
+
         let errorMessage = this.$t('An unknown error occurred');
 
         if (err?.message) {
@@ -349,24 +511,36 @@ class FlutterwaveCheckout {
             }
         }
 
+        // Show error message
         let flutterwaveContainer = document.querySelector('.fluent-cart-checkout_embed_payment_container_flutterwave');
-        let tempMessage = this.$t('Something went wrong');
-
         if (flutterwaveContainer) {
-            flutterwaveContainer.innerHTML += '<div id="fct_loading_payment_processor">' + this.$t(tempMessage) + '</div>';
-            flutterwaveContainer.style.display = 'block';
-            flutterwaveContainer.querySelector('#fct_loading_payment_processor').style.color = '#dc3545';
-            flutterwaveContainer.querySelector('#fct_loading_payment_processor').style.fontSize = '14px';
-            flutterwaveContainer.querySelector('#fct_loading_payment_processor').style.padding = '10px';
+            // Remove any existing error messages
+            const existingError = flutterwaveContainer.querySelector('.fct-flutterwave-error');
+            if (existingError) existingError.remove();
+
+            // Add new error message
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'fct-flutterwave-error';
+            errorDiv.style.cssText = 'color: #dc3545; font-size: 14px; padding: 10px; text-align: center; margin-top: 10px; background: #fff5f5; border-radius: 4px; border: 1px solid #ffebee;';
+            errorDiv.textContent = errorMessage;
+            flutterwaveContainer.appendChild(errorDiv);
+
+            // Auto-remove error after 5 seconds
+            setTimeout(() => {
+                if (errorDiv.parentNode) errorDiv.remove();
+            }, 5000);
         }
 
-        this.paymentLoader.hideLoader();
-        this.paymentLoader?.enableCheckoutButton(this.submitButton?.text || this.$t('Place Order'));
+        this.paymentLoader?.hideLoader();
+        this.paymentLoader?.enableCheckoutButton();
     }
 }
 
 window.addEventListener("fluent_cart_load_payments_flutterwave", function (e) {
-    const translate = window.fluentcart.$t;
+    // Dispatch loading event
+    window.dispatchEvent(new CustomEvent('fluent_cart_payment_method_loading', {
+        detail: { payment_method: 'flutterwave' }
+    }));
 
     const flutterwaveContainer = document.querySelector('.fluent-cart-checkout_embed_payment_container_flutterwave');
     if (flutterwaveContainer && flutterwaveContainer.children.length > 0) {
@@ -387,7 +561,7 @@ window.addEventListener("fluent_cart_load_payments_flutterwave", function (e) {
             displayErrorMessage(response?.message);
             return;
         }
-        new FlutterwaveCheckout(e.detail.form, e.detail.orderHandler, response, e.detail.paymentLoader).init();
+        new FctFlutterwaveHandler(e.detail.form, e.detail.orderHandler, response, e.detail.paymentLoader).init();
     }).catch(error => {
         const translations = window.fct_flutterwave_data?.translations || {};
         function $t(string) {

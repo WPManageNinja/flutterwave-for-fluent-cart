@@ -25,7 +25,7 @@ class FlutterwaveRefund
         // Flutterwave expects amount in main currency unit
         $refundAmount = FlutterwaveHelper::formatAmountForFlutterwave($amount, $transaction->currency);
 
-        $refund = FlutterwaveAPI::createRefund($flutterwaveTransactionId, $refundAmount);
+        $refund = FlutterwaveAPI::createFlutterwaveObject('transactions/' . $flutterwaveTransactionId . '/refund', ['amount' => $refundAmount]);
 
         if (is_wp_error($refund)) {
             return $refund;

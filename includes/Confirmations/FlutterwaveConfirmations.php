@@ -50,9 +50,9 @@ class FlutterwaveConfirmations
 
         // Verify the transaction with Flutterwave
         if ($transactionId) {
-            $flutterwaveTransaction = FlutterwaveAPI::verifyTransaction($transactionId);
+            $flutterwaveTransaction = FlutterwaveAPI::getFlutterwaveObject('transactions/' . $transactionId . '/verify');
         } else {
-            $flutterwaveTransaction = FlutterwaveAPI::verifyTransactionByReference($txRef);
+            $flutterwaveTransaction = FlutterwaveAPI::getFlutterwaveObject('transactions/verify_by_reference', ['tx_ref' => $txRef]);
         }
 
         if (is_wp_error($flutterwaveTransaction)) {

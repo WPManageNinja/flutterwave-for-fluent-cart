@@ -155,14 +155,14 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         }
 
         if ($existingPlanId) {
-            $existingPlan = FlutterwaveAPI::getPaymentPlan($existingPlanId);
+            $existingPlan = FlutterwaveAPI::getFlutterwaveObject('payment-plans/' . $existingPlanId);
             if (!is_wp_error($existingPlan) && Arr::get($existingPlan, 'status') === 'success') {
                 return $existingPlan;
             }
         }
 
         // Create new plan
-        $plan = FlutterwaveAPI::createPaymentPlan($planData);
+        $plan = FlutterwaveAPI::createFlutterwaveObject('payment-plans', $planData);
 
         if (is_wp_error($plan)) {
             return $plan;
@@ -199,7 +199,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 
         if ($customerId && $subscriptionModel->vendor_plan_id) {
             // Try to get subscription details from Flutterwave
-            $subscriptions = FlutterwaveAPI::getSubscriptions([
+            $subscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', [
                 'email' => Arr::get($flutterwaveTransaction, 'customer.email')
             ]);
 
@@ -302,7 +302,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        $flutterwaveSubscription = FlutterwaveAPI::getSubscription($vendorSubscriptionId);
+        $flutterwaveSubscription = FlutterwaveAPI::getFlutterwaveObject('subscriptions/' . $vendorSubscriptionId);
         
         if (is_wp_error($flutterwaveSubscription)) {
             return $flutterwaveSubscription;

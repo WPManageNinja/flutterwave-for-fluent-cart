@@ -95,15 +95,22 @@ class FlutterwaveWebhook
             : '';
         
         if (!$secretHash) {
-            // Some Flutterwave integrations don't use verif-hash
-            // In that case, we'll verify the transaction via API
-            return true;
+            return false;
         }
 
-        $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecret();
+        $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
         
         if (!$storedHash) {
             // If no webhook secret is configured, allow the webhook but log a warning
+            fluent_cart_add_log(
+                __('Flutterwave Webhook Secret Hash Not Configured', 'flutterwave-for-fluent-cart'),
+                'No webhook secret is configured for Flutterwave. Allowing the webhook but it is not recommended.',
+                'warning',
+                [
+                    'module_name' => 'payment',
+                    'module_id'   => 'flutterwave',
+                ]
+            );
             return true;
         }
 
@@ -403,19 +410,27 @@ class FlutterwaveWebhook
         $order = null;
         $event = Arr::get($data, 'event', '');
 
-        // Try from meta.order_hash
         $orderHash = Arr::get($data, 'data.meta.order_hash');
         if ($orderHash) {
             $order = Order::query()->where('uuid', $orderHash)->first();
         }
 
-        // Try from tx_ref
         $txRef = Arr::get($data, 'data.tx_ref');
         if ($txRef && !$order) {
             $order = FlutterwaveHelper::getOrderFromTxRef($txRef);
         }
 
-        // For refund events - try to find order via transaction_id
+        // subscription hash
+        $subscriptionHash = Arr::get($data, 'data.meta.subscription_hash');
+        if ($subscriptionHash && !$order) {
+            $subscriptionModel = Subscription::query()
+                ->where('uuid', $subscriptionHash)
+                ->first();
+            if ($subscriptionModel) {
+                $order = Order::query()->where('id', $subscriptionModel->parent_order_id)->first();
+            }
+        }
+
         if (strpos($event, 'refund') !== false && !$order) {
             $transactionId = Arr::get($data, 'data.transaction_id');
             if ($transactionId) {
@@ -429,7 +444,6 @@ class FlutterwaveWebhook
                 }
             }
 
-            // Also try by flw_ref
             $flwRef = Arr::get($data, 'data.flw_ref');
             if ($flwRef && !$order) {
                 $transaction = OrderTransaction::query()
@@ -444,7 +458,6 @@ class FlutterwaveWebhook
             }
         }
 
-        // Try from subscription id
         $subscriptionId = Arr::get($data, 'data.id');
         
         if (strpos($event, 'subscription') !== false && $subscriptionId && !$order) {

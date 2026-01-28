@@ -149,7 +149,10 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         ]);
 
         // Check if plan already exists
-        $existingPlanId = $product->getProductMeta($fctFlutterwavePlanId);
+        $existingPlanId = null;
+        if ($product) {
+            $existingPlanId = $product->getProductMeta($fctFlutterwavePlanId);
+        }
 
         if ($existingPlanId) {
             $existingPlan = FlutterwaveAPI::getPaymentPlan($existingPlanId);
@@ -173,7 +176,9 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         }
 
         // Store the plan ID in product meta
-        $product->updateProductMeta($fctFlutterwavePlanId, Arr::get($plan, 'data.id'));
+        if ($product) {
+            $product->updateProductMeta($fctFlutterwavePlanId, Arr::get($plan, 'data.id'));
+        }
 
         return $plan;
     }

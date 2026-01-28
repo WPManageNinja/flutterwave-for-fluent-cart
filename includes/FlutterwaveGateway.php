@@ -42,7 +42,6 @@ class FlutterwaveGateway extends AbstractPaymentGateway
             new FlutterwaveSubscriptions()
         );
 
-        // Register as custom checkout button provider to hide default "Place Order" button
         add_filter('fluent_cart/payment_methods_with_custom_checkout_buttons', function ($methods) {
             $methods[] = 'flutterwave';
             return $methods;
@@ -63,6 +62,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
             'logo'               => $logo,
             'icon'               => $logo,
             'brand_color'        => '#F5A623',
+            'tag'                => 'beta',
             'status'             => $this->settings->get('is_active') === 'yes',
             'upcoming'           => false,
             'is_addon'           => true,
@@ -259,6 +259,12 @@ class FlutterwaveGateway extends AbstractPaymentGateway
                                 'type'        => 'password',
                                 'placeholder' => __('FLWSECK-xxxxxxxxxxxxxxxx-X', 'flutterwave-for-fluent-cart'),
                             ],
+                            'live_webhook_secret_hash' => [
+                                'value'       => '',
+                                'label'       => __('Live Webhook Secret Hash', 'flutterwave-for-fluent-cart'),
+                                'type'        => 'password',
+                                'placeholder' => __('Your live webhook secret hash', 'flutterwave-for-fluent-cart'),
+                            ],
                         ]
                     ],
                     [
@@ -278,16 +284,15 @@ class FlutterwaveGateway extends AbstractPaymentGateway
                                 'type'        => 'password',
                                 'placeholder' => __('FLWSECK_TEST-xxxxxxxxxxxxxxxx-X', 'flutterwave-for-fluent-cart'),
                             ],
+                            'test_webhook_secret_hash' => [
+                                'value'       => '',
+                                'label'       => __('Test Webhook Secret Hash', 'flutterwave-for-fluent-cart'),
+                                'type'        => 'password',
+                                'placeholder' => __('Your test webhook secret hash', 'flutterwave-for-fluent-cart'),
+                            ],
                         ],
                     ],
                 ]
-            ],
-            'webhook_secret' => [
-                'value'       => '',
-                'label'       => __('Webhook Secret Hash', 'flutterwave-for-fluent-cart'),
-                'type'        => 'password',
-                'placeholder' => __('Enter your webhook secret hash', 'flutterwave-for-fluent-cart'),
-                'tooltip'     => __('This is the secret hash you set in your Flutterwave webhook settings. It is used to verify webhook requests.', 'flutterwave-for-fluent-cart'),
             ],
             'webhook_info' => [
                 'value' => $this->getWebhookInstructions(),

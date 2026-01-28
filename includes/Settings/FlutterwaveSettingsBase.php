@@ -44,8 +44,9 @@ class FlutterwaveSettingsBase extends BaseGatewaySettings
             'test_secret_key'  => '',
             'live_public_key'  => '',
             'live_secret_key'  => '',
-            'webhook_secret'   => '',
-            'payment_mode'     => 'test',
+            'test_webhook_secret_hash'   => '',
+            'live_webhook_secret_hash'   => '',
+            'payment_mode'     => 'live',
         ];
     }
 
@@ -97,8 +98,16 @@ class FlutterwaveSettingsBase extends BaseGatewaySettings
         }
     }
 
-    public function getWebhookSecret()
+    public function getWebhookSecretHash($mode = 'current')
     {
-        return $this->get('webhook_secret');
+        if ($mode == 'current' || !$mode) {
+            $mode = $this->getMode();
+        }
+
+        if ($mode === 'test') {
+            return $this->get('test_webhook_secret_hash');
+        } else {
+            return $this->get('live_webhook_secret_hash');
+        }
     }
 }

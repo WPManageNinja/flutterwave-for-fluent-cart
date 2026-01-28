@@ -74,7 +74,6 @@ class FlutterwaveHelper
 
     public static function getOrderFromTxRef($txRef)
     {
-        // tx_ref format: {transaction_uuid}_{timestamp}
         $parts = explode('_', $txRef);
         $transactionHash = $parts[0] ?? '';
 
@@ -95,11 +94,12 @@ class FlutterwaveHelper
 
     public static function getFlutterwaveSupportedCurrencies(): array
     {
-        return [
-            'NGN', 'USD', 'EUR', 'GBP', 'GHS', 'KES', 'ZAR', 'TZS', 'UGX',
+        return apply_filters('fluent_cart/flutterwave_supported_currencies', [
+            'NGN', 'USD', 'EUR', 'GBP', 'CAD', 'GHS', 'KES', 'ZAR', 'TZS', 'UGX',
             'RWF', 'XAF', 'XOF', 'ZMW', 'MWK', 'SLL', 'MZN', 'AED', 'EGP',
-            'MAD', 'INR', 'ETB'
-        ];
+            'MAD', 'INR', 'ETB', 'ILS', 'JPY', 'KRW', 'MYR', 'PHP', 'SGD', 'THB',
+            'TRY', 'VND', 'XCD', 'XPF', 'YER', 'ZMW', 'ZAR', 'INR', 'BRL', 'ARS'
+        ]);
     }
 
     public static function getSubscriptionUpdateData($flutterwaveSubscription, $subscriptionModel)

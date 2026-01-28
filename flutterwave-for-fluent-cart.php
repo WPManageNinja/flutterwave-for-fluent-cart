@@ -9,7 +9,7 @@
  * Text Domain: flutterwave-for-fluent-cart
  * Domain Path: /languages
  * Requires at least: 5.6
- * Tested up to: 6.8
+ * Tested up to: 6.9
  * Requires PHP: 7.4
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -87,16 +87,13 @@ add_action('plugins_loaded', function() {
 }, 20);
 
 
-// Activation and deactivation hooks
 register_activation_hook(__FILE__, 'flutterwave_fc_on_activation');
-register_deactivation_hook(__FILE__, 'flutterwave_fc_on_deactivation');
 
 /**
  * Plugin activation callback
  */
 function flutterwave_fc_on_activation() {
     if (!flutterwave_fc_check_dependencies()) {
-        deactivate_plugins(plugin_basename(__FILE__));
         wp_die(
             esc_html__('Flutterwave for FluentCart requires FluentCart to be installed and activated.', 'flutterwave-for-fluent-cart'),
             esc_html__('Plugin Activation Error', 'flutterwave-for-fluent-cart'),
@@ -104,31 +101,8 @@ function flutterwave_fc_on_activation() {
         );
     }
     
-    // Set default options
-    $default_options = [
-        'FLUTTERWAVE_FCT_VERSION' => FLUTTERWAVE_FCT_VERSION,
-        'flutterwave_fct_installed_time' => current_time('timestamp'),
-    ];
-    
-    foreach ($default_options as $option => $value) {
-        add_option($option, $value);
-    }
-    
     // Clear any relevant caches
     if (function_exists('wp_cache_flush')) {
         wp_cache_flush();
-    }
-}
-
-/**
- * Plugin deactivation callback
- */
-function flutterwave_fc_on_deactivation() {
-    // Clear transients
-    delete_transient('flutterwave_fc_api_status');
-    
-    // Clear wp_cache if object caching is enabled
-    if (function_exists('wp_cache_flush_group')) {
-        wp_cache_flush_group('flutterwave_fc');
     }
 }

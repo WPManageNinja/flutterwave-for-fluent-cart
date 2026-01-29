@@ -9,6 +9,7 @@ use FluentCart\App\Models\Subscription;
 use FluentCart\Framework\Support\Arr;
 use FluentCart\App\Events\Order\OrderRefund;
 use FluentCart\App\Events\Subscription\SubscriptionActivated;
+use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
 use FlutterwaveFluentCart\Confirmations\FlutterwaveConfirmations;
@@ -37,6 +38,7 @@ class FlutterwaveWebhook
     public function verifyAndProcess()
     {
         $payload = $this->getWebhookPayload();
+
         if (is_wp_error($payload)) {
             http_response_code(400);
             exit('Not valid payload');
@@ -90,10 +92,13 @@ class FlutterwaveWebhook
 
     private function verifySignature()
     {
-        $secretHash = isset($_SERVER['HTTP_VERIF_HASH']) 
-            ? sanitize_text_field(wp_unslash($_SERVER['HTTP_VERIF_HASH'])) 
-            : '';
-        
+        // Flutterwave sends secret hash in verif-hash or flutterwave-signature header
+        $secretHash = '';
+        if (isset($_SERVER['HTTP_VERIF_HASH'])) {
+            $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_VERIF_HASH']));
+        } elseif (isset($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE'])) {
+            $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE']));
+        }
         if (!$secretHash) {
             return false;
         }
@@ -117,14 +122,19 @@ class FlutterwaveWebhook
         return hash_equals($storedHash, $secretHash);
     }
 
+    /**
+     * Handle charge.completed webhook event.
+     * Flutterwave sends this for both one-time payments and subscription recurring payments.
+     * See: https://developer.flutterwave.com/docs/webhooks
+     */
     public function handleChargeCompleted($data)
     {
         $flutterwaveTransaction = Arr::get($data, 'payload');
         $flutterwaveTransactionId = Arr::get($flutterwaveTransaction, 'id');
 
+        // Flutterwave may send status as 'successful' (v2) or 'succeeded' (v3/v4)
         $status = Arr::get($flutterwaveTransaction, 'status');
-        
-        if ($status !== 'successful') {
+        if (!in_array($status, ['successful', 'succeeded'], true)) {
             $this->sendResponse(200, 'Transaction not successful, skipping.');
         }
 
@@ -151,7 +161,6 @@ class FlutterwaveWebhook
             $this->sendResponse(200, 'Transaction not found for the provided reference.');
         }
 
-        // Check if already processed
         if ($transactionModel->status == Status::TRANSACTION_SUCCEEDED) {
             $this->sendResponse(200, 'Transaction already processed.');
         }
@@ -165,16 +174,22 @@ class FlutterwaveWebhook
                 ->first();
         }
 
+        if ($transactionModel->subscription_id) {
+            $subscriptionModel = Subscription::query()
+                ->where('id', $transactionModel->subscription_id)
+                ->first();
+        }
+
         $billingInfo = [
             'type' => Arr::get($flutterwaveTransaction, 'payment_type', 'card'),
             'last4' => Arr::get($flutterwaveTransaction, 'card.last_4digits'),
             'brand' => Arr::get($flutterwaveTransaction, 'card.type'),
             'payment_method_id' => $flutterwaveTransactionId,
             'payment_method_type' => Arr::get($flutterwaveTransaction, 'payment_type'),
+            'customer' => Arr::get($flutterwaveTransaction, 'customer'),
         ];
 
         $updatedSubData = [];
-
         if ($subscriptionModel && !in_array($subscriptionModel->status, [Status::SUBSCRIPTION_ACTIVE, Status::SUBSCRIPTION_TRIALING])) {
             $updatedSubData = (new FlutterwaveSubscriptions())->activateSubscription($subscriptionModel, [
                 'flutterwave_transaction' => $flutterwaveTransaction,
@@ -190,6 +205,58 @@ class FlutterwaveWebhook
         ]);
 
         $this->sendResponse(200, 'Charge completed processed successfully');
+    }
+
+    /**
+     * Process subscription recurring payment (renewal) from Flutterwave charge.completed webhook.
+     * Mirrors PayPal IPN processRecurringPaymentReceived / Stripe invoice.payment_succeeded handling.
+     */
+    protected function processSubscriptionRecurringPayment(array $flutterwaveTransaction, Subscription $subscriptionModel)
+    {
+        if ($subscriptionModel->current_payment_method !== 'flutterwave') {
+            return null;
+        }
+
+        $chargeId = Arr::get($flutterwaveTransaction, 'id');
+        $amount = FlutterwaveHelper::convertToLowestUnit(
+            Arr::get($flutterwaveTransaction, 'amount', 0),
+            Arr::get($flutterwaveTransaction, 'currency', $subscriptionModel->order->currency ?? 'USD')
+        );
+        if (!$amount || !$chargeId) {
+            return null;
+        }
+
+        $transactionData = [
+            'payment_method'      => 'flutterwave',
+            'total'               => $amount,
+            'vendor_charge_id'    => $chargeId,
+            'payment_method_type' => Arr::get($flutterwaveTransaction, 'payment_type', 'card'),
+            'payment_mode'        => $subscriptionModel->order ? $subscriptionModel->order->mode : 'live',
+            'meta'                => [
+                'customer' => Arr::get($flutterwaveTransaction, 'customer', []),
+                'payment_type' => Arr::get($flutterwaveTransaction, 'payment_type'),
+            ]
+        ];
+
+        $subscriptionUpdateData = [
+            'current_payment_method' => 'flutterwave',
+        ];
+        $nextDue = Arr::get($flutterwaveTransaction, 'next_due');
+        if ($nextDue) {
+            $subscriptionUpdateData['next_billing_date'] = DateTime::anyTimeToGmt($nextDue)->format('Y-m-d H:i:s');
+        }
+
+        $result = SubscriptionService::recordRenewalPayment($transactionData, $subscriptionModel, $subscriptionUpdateData);
+        if (is_wp_error($result)) {
+            fluent_cart_add_log(
+                __('Flutterwave subscription renewal webhook failed', 'flutterwave-for-fluent-cart'),
+                $result->get_error_message(),
+                'error',
+                ['module_name' => 'payment', 'module_id' => 'flutterwave']
+            );
+            return null;
+        }
+        return $result;
     }
 
     /**
@@ -444,18 +511,18 @@ class FlutterwaveWebhook
                 }
             }
 
-            $flwRef = Arr::get($data, 'data.flw_ref');
-            if ($flwRef && !$order) {
-                $transaction = OrderTransaction::query()
-                    ->where('payment_method', 'flutterwave')
-                    ->where('transaction_type', Status::TRANSACTION_TYPE_CHARGE)
-                    ->whereRaw("JSON_EXTRACT(meta, '$.flw_ref') = ?", [$flwRef])
-                    ->first();
+            // $flwRef = Arr::get($data, 'data.flw_ref');
+            // if ($flwRef && !$order) {
+            //     $transaction = OrderTransaction::query()
+            //         ->where('payment_method', 'flutterwave')
+            //         ->where('transaction_type', Status::TRANSACTION_TYPE_CHARGE)
+            //         ->whereRaw("JSON_EXTRACT(meta, '$.flw_ref') = ?", [$flwRef])
+            //         ->first();
                 
-                if ($transaction) {
-                    $order = Order::query()->where('id', $transaction->order_id)->first();
-                }
-            }
+            //     if ($transaction) {
+            //         $order = Order::query()->where('id', $transaction->order_id)->first();
+            //     }
+            // }
         }
 
         $subscriptionId = Arr::get($data, 'data.id');

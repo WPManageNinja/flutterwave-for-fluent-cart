@@ -18,6 +18,7 @@ use FluentCart\Framework\Support\Arr;
 use FluentCart\App\Services\Payments\PaymentInstance;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractPaymentGateway;
+use FluentCart\App\Services\PluginInstaller\PaymentAddonManager;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
 use FlutterwaveFluentCart\Subscriptions\FlutterwaveSubscriptions;
 use FlutterwaveFluentCart\Refund\FlutterwaveRefund;
@@ -51,7 +52,9 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     public function meta(): array
     {
         $logo = FLUTTERWAVE_FCT_PLUGIN_URL . 'assets/images/flutterwave-logo.svg';
-        
+
+        $addonStatus = PaymentAddonManager::getAddonStatus($this->addonSlug, $this->addonFile);
+
         return [
             'title'              => __('Flutterwave', 'flutterwave-for-fluent-cart'),
             'route'              => $this->methodSlug,
@@ -73,6 +76,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
                 'file' => $this->addonFile,
                 'is_installed' => true
             ],
+            'addon_status' => $addonStatus,
             'supported_features' => $this->supportedFeatures,
         ];
     }
@@ -133,7 +137,13 @@ class FlutterwaveGateway extends AbstractPaymentGateway
 
     public function getEnqueueStyleSrc(): array
     {
-        return [];
+        return [
+            [
+                'handle' => 'flutterwave-fluent-cart-checkout-styles',
+                'src'    => FLUTTERWAVE_FCT_PLUGIN_URL . 'assets/flutterwave-checkout.css',
+                'version' => FLUTTERWAVE_FCT_VERSION
+            ]
+        ];
     }
 
     public function getLocalizeData(): array

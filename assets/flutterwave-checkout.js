@@ -25,20 +25,17 @@ class FctFlutterwaveHandler {
 
         this.#publicKey = this.data?.payment_args?.public_key;
 
-        // Preload Flutterwave script
         this.loadFlutterwaveScript().catch(() => {});
     }
 
     renderPaymentButton(container) {
         const that = this;
 
-        // Create payment info section
         this.renderPaymentInfo();
 
         // Create custom Pay button
         const buttonWrapper = document.createElement('div');
         buttonWrapper.className = 'fct-flutterwave-button-wrapper';
-        buttonWrapper.style.cssText = 'margin-top: 16px; text-align: center;';
 
         const payButton = document.createElement('button');
         payButton.type = 'button';
@@ -54,51 +51,6 @@ class FctFlutterwaveHandler {
             </span>
         `;
 
-        // Button styles
-        const buttonStyles = document.createElement('style');
-        buttonStyles.textContent = `
-            .fct-flutterwave-pay-button {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-                width: 100%;
-                padding: 14px 24px;
-                font-size: 16px;
-                font-weight: 600;
-                color: #fff;
-                background: linear-gradient(135deg, #F5A623 0%, #FF8C00 100%);
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                min-height: 50px;
-            }
-            .fct-flutterwave-pay-button:hover:not(:disabled) {
-                background: linear-gradient(135deg, #FF8C00 0%, #F5A623 100%);
-                transform: translateY(-1px);
-                box-shadow: 0 4px 12px rgba(245, 166, 35, 0.4);
-            }
-            .fct-flutterwave-pay-button:disabled {
-                opacity: 0.7;
-                cursor: not-allowed;
-            }
-            .fct-flutterwave-pay-button:active:not(:disabled) {
-                transform: translateY(0);
-            }
-            .fct-flw-btn-loader svg {
-                display: block;
-            }
-            .fct-flutterwave-extra-text {
-                text-align: center;
-                margin-top: 10px;
-                font-size: 13px;
-                color: #666;
-            }
-        `;
-        container.appendChild(buttonStyles);
-
-        // Click handler - calls orderHandler first, then opens Flutterwave
         payButton.addEventListener('click', async () => {
             if (that.#isProcessing) return;
             await that.handlePayButtonClick(payButton);
@@ -118,7 +70,6 @@ class FctFlutterwaveHandler {
             detail: { payment_method: 'flutterwave' }
         }));
 
-        // Remove loading text
         const loadingElement = document.getElementById('fct_loading_payment_processor');
         if (loadingElement) {
             loadingElement.remove();
@@ -137,7 +88,6 @@ class FctFlutterwaveHandler {
         button.disabled = true;
 
         try {
-            // Call orderHandler to create order first (like PayPal does)
             if (typeof this.orderHandler !== 'function') {
                 throw new Error(this.$t('Order handler not available'));
             }
@@ -147,8 +97,7 @@ class FctFlutterwaveHandler {
             if (!orderResponse) {
                 throw new Error(this.$t('Order creation failed'));
             }
-
-            // Get flutterwave data from response
+            
             const flutterwaveData = orderResponse?.data?.flutterwave_data;
             const intent = orderResponse?.data?.intent;
 
@@ -159,7 +108,8 @@ class FctFlutterwaveHandler {
             // Load Flutterwave script if not loaded
             await this.loadFlutterwaveScript();
 
-            // Open Flutterwave popup based on intent
+            console.log('flutterwaveData', flutterwaveData);
+
             if (intent === 'subscription') {
                 this.openFlutterwavePopup(flutterwaveData, true);
             } else {
@@ -186,8 +136,6 @@ class FctFlutterwaveHandler {
         const that = this;
         const button = document.getElementById('fct-flutterwave-pay-button');
 
-        // Build config per Flutterwave Inline docs:
-        // https://developer.flutterwave.com/v3.0/docs/inline
         const config = {
             public_key: flutterwaveData.public_key,
             tx_ref: flutterwaveData.tx_ref,
@@ -196,9 +144,8 @@ class FctFlutterwaveHandler {
             customer: flutterwaveData.customer,
             meta: flutterwaveData.meta,
             customizations: flutterwaveData.customizations,
-            // Callback is called when payment completes (while modal still open)
+
             callback: function(response) {
-                // Response contains: transaction_id, tx_ref, flw_ref, status, amount, currency, customer
                 that.handlePaymentSuccess(response);
             },
             // onclose is called when customer closes modal
@@ -211,22 +158,20 @@ class FctFlutterwaveHandler {
             }
         };
 
-        // Add payment_options if specified (e.g., 'card, mobilemoneyghana, ussd')
+
         if (flutterwaveData.payment_options) {
             config.payment_options = flutterwaveData.payment_options;
         }
 
-        // Add payment_plan for subscriptions (recurring payments)
         if (isSubscription && flutterwaveData.payment_plan) {
             config.payment_plan = flutterwaveData.payment_plan;
         }
 
-        // Add configurations for session timeout and max retry (optional)
-        // session_duration: max 1440 minutes, max_retry_attempt: number of retries
         if (flutterwaveData.configurations) {
             config.configurations = flutterwaveData.configurations;
         }
 
+        console.log('config', config);
         try {
             // FlutterwaveCheckout returns an object with close() method
             this.#flwCheckout = window.FlutterwaveCheckout(config);
@@ -286,98 +231,6 @@ class FctFlutterwaveHandler {
         html += '</div>';
         
         html += '</div>';
-        
-        // Add CSS styles
-        html += `<style>
-            .fct-flutterwave-info {
-                padding: 20px;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                background: #f9f9f9;
-                margin-bottom: 20px;
-            }
-            
-            .fct-flutterwave-header {
-                text-align: center;
-                margin-bottom: 16px;
-            }
-            
-            .fct-flutterwave-subheading {
-                margin: 0;
-                font-size: 12px;
-                color: #999;
-                font-weight: 400;
-            }
-            
-            .fct-flutterwave-methods {
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 12px;
-            }
-            
-            .fct-flutterwave-method {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 12px 16px;
-                background: white;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                transition: all 0.2s ease;
-                min-width: 70px;
-            }
-            
-            .fct-flutterwave-method:hover {
-                border-color: #F5A623;
-                box-shadow: 0 2px 8px rgba(245, 166, 35, 0.15);
-            }
-            
-            .fct-method-icon {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #F5A623;
-                margin-bottom: 6px;
-            }
-            
-            .fct-method-icon svg {
-                width: 28px;
-                height: 28px;
-            }
-            
-            .fct-method-name {
-                font-size: 11px;
-                font-weight: 500;
-                color: #555;
-                text-align: center;
-            }
-            
-            @media (max-width: 768px) {
-                .fct-flutterwave-info {
-                    padding: 16px;
-                }
-                
-                .fct-flutterwave-methods {
-                    gap: 8px;
-                }
-                
-                .fct-flutterwave-method {
-                    padding: 10px 12px;
-                    min-width: 60px;
-                }
-                
-                .fct-method-icon svg {
-                    width: 24px;
-                    height: 24px;
-                }
-                
-                .fct-method-name {
-                    font-size: 10px;
-                }
-            }
-        </style>`;
 
         container.innerHTML = html;
     }
@@ -521,7 +374,6 @@ class FctFlutterwaveHandler {
             // Add new error message
             const errorDiv = document.createElement('div');
             errorDiv.className = 'fct-flutterwave-error';
-            errorDiv.style.cssText = 'color: #dc3545; font-size: 14px; padding: 10px; text-align: center; margin-top: 10px; background: #fff5f5; border-radius: 4px; border: 1px solid #ffebee;';
             errorDiv.textContent = errorMessage;
             flutterwaveContainer.appendChild(errorDiv);
 
@@ -573,9 +425,6 @@ window.addEventListener("fluent_cart_load_payments_flutterwave", function (e) {
 
     function displayErrorMessage(message) {
         const errorDiv = document.createElement('div');
-        errorDiv.style.color = 'red';
-        errorDiv.style.padding = '10px';
-        errorDiv.style.fontSize = '14px';
         errorDiv.className = 'fct-error-message';
         errorDiv.textContent = message;
 

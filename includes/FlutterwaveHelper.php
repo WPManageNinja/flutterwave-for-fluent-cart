@@ -94,7 +94,7 @@ class FlutterwaveHelper
 
     public static function getFlutterwaveSupportedCurrencies(): array
     {
-        return apply_filters('fluent_cart/flutterwave_supported_currencies', [
+        return apply_filters('flutterwave-for-fluent-cart/supported_currencies', [
             'NGN', 'USD', 'EUR', 'GBP', 'CAD', 'GHS', 'KES', 'ZAR', 'TZS', 'UGX',
             'RWF', 'XAF', 'XOF', 'ZMW', 'MWK', 'SLL', 'MZN', 'AED', 'EGP',
             'MAD', 'INR', 'ETB', 'ILS', 'JPY', 'KRW', 'MYR', 'PHP', 'SGD', 'THB',
@@ -125,25 +125,12 @@ class FlutterwaveHelper
 
     public static function formatAmountForFlutterwave($amount, $currency)
     {
-        // Flutterwave expects amount in the main currency unit (not kobo/cents)
-        // FluentCart stores amount in smallest unit, so we need to convert
-        $zeroDecimalCurrencies = ['XOF', 'XAF', 'GNF', 'KMF', 'RWF'];
-        
-        if (in_array(strtoupper($currency), $zeroDecimalCurrencies)) {
-            return (int) $amount;
-        }
-        
+       
         return round($amount / 100, 2);
     }
 
     public static function convertToLowestUnit($amount, $currency)
-    {
-        $zeroDecimalCurrencies = ['XOF', 'XAF', 'GNF', 'KMF', 'RWF'];
-        
-        if (in_array(strtoupper($currency), $zeroDecimalCurrencies)) {
-            return (int) $amount;
-        }
-        
+    { 
         return (int) ($amount * 100);
     }
 }

@@ -3,24 +3,19 @@
 namespace FlutterwaveFluentCart\Subscriptions;
 
 use FluentCart\App\Helpers\Status;
-use FluentCart\App\Helpers\StatusHelper;
-use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
-use FluentCart\App\Models\Order;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractSubscriptionModule;
 use FluentCart\App\Events\Subscription\SubscriptionActivated;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;
+use FluentCart\App\Models\Product;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\FlutterwaveHelper;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
 
 class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 {
-    /**
-     * Handle subscription payment using Flutterwave Inline (popup modal)
-     */
     public function handleSubscription($paymentInstance, $paymentArgs)
     {
         $order = $paymentInstance->order;
@@ -39,7 +34,13 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        // Create or get payment plan
+        if (!empty($subscription->trial_days) && (int) $subscription->trial_days > 0) {
+            return new \WP_Error(
+                'flutterwave_trial_not_supported',
+                __('Flutterwave does not support subscriptions with a trial period. Please choose another payment method or remove the trial from this product.', 'flutterwave-for-fluent-cart')
+            );
+        }
+
         $plan = self::getOrCreateFlutterwavePlan($paymentInstance);
 
         if (is_wp_error($plan)) {
@@ -54,11 +55,13 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 
         $txRef = $transaction->uuid . '_' . time();
 
-        // Prepare inline payment data with payment plan for popup
+
+        $firstChargeAmount = $transaction->total;
+
         $inlineData = [
             'public_key'   => $publicKey,
             'tx_ref'       => $txRef,
-            'amount'       => FlutterwaveHelper::formatAmountForFlutterwave($transaction->total, $transaction->currency),
+            'amount'       => FlutterwaveHelper::formatAmountForFlutterwave($firstChargeAmount, $transaction->currency),
             'currency'     => strtoupper($transaction->currency),
             'payment_plan' => $planId,
             'customer'     => [
@@ -82,8 +85,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             $inlineData['customer']['phone_number'] = $fcCustomer->phone;
         }
 
-        // Apply filters for customization
-        $inlineData = apply_filters('fluent_cart/flutterwave/subscription_payment_args', $inlineData, [
+        $inlineData = apply_filters('flutterwave-for-fluent-cart/subscription_payment_args', $inlineData, [
             'order'        => $order,
             'transaction'  => $transaction,
             'subscription' => $subscription
@@ -121,7 +123,6 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'payment_method' => 'flutterwave',
         ]);
 
-        // Create a unique plan identifier
         $fctFlutterwavePlanId = 'fct_flutterwave_plan_'
             . $order->mode . '_'
             . $product->id . '_'
@@ -138,8 +139,10 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'currency' => strtoupper($transaction->currency),
         ];
 
+        // Flutterwave duration = number of charges AFTER the first; total charges = 1 + duration.
+        // So for bill_times total payments we send duration = bill_times - 1.
         if ($subscription->bill_times && $subscription->bill_times > 0) {
-            $planData['duration'] = $subscription->bill_times;
+            $planData['duration'] = max(0, (int) $subscription->bill_times - 1);
         }
 
         $fctFlutterwavePlanId = apply_filters('fluent_cart/flutterwave_plan_id', $fctFlutterwavePlanId, [
@@ -148,9 +151,8 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'product'   => $product
         ]);
 
-        // Check if plan already exists
         $existingPlanId = null;
-        if ($product) {
+        if ($product && $product instanceof Product) {
             $existingPlanId = $product->getProductMeta($fctFlutterwavePlanId);
         }
 
@@ -161,7 +163,6 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             }
         }
 
-        // Create new plan
         $plan = FlutterwaveAPI::createFlutterwaveObject('payment-plans', $planData);
 
         if (is_wp_error($plan)) {
@@ -175,8 +176,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        // Store the plan ID in product meta
-        if ($product) {
+        if ($product && $product instanceof Product) {
             $product->updateProductMeta($fctFlutterwavePlanId, Arr::get($plan, 'data.id'));
         }
 
@@ -190,21 +190,18 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         $flutterwaveTransaction = Arr::get($args, 'flutterwave_transaction', []);
         $billingInfo = Arr::get($args, 'billing_info', []);
 
-        // Calculate next billing date based on interval
         $nextBillingDate = $this->calculateNextBillingDate($subscriptionModel);
 
-        // Get subscription from Flutterwave if available
         $vendorSubscriptionId = null;
         $customerId = Arr::get($flutterwaveTransaction, 'customer.id');
 
         if ($customerId && $subscriptionModel->vendor_plan_id) {
-            // Try to get subscription details from Flutterwave
-            $subscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', [
+            $flutterwaveSubscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', [
                 'email' => Arr::get($flutterwaveTransaction, 'customer.email')
             ]);
 
-            if (!is_wp_error($subscriptions)) {
-                $subs = Arr::get($subscriptions, 'data', []);
+            if (!is_wp_error($flutterwaveSubscriptions)) {
+                $subs = Arr::get($flutterwaveSubscriptions, 'data', []);
                 foreach ($subs as $sub) {
                     if (Arr::get($sub, 'plan') == $subscriptionModel->vendor_plan_id) {
                         $vendorSubscriptionId = Arr::get($sub, 'id');

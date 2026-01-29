@@ -106,16 +106,16 @@ class FlutterwaveConfirmations
         }
 
         // Check if already processed
-        if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
-            wp_send_json([
-                'redirect_url' => $transactionModel->getReceiptPageUrl(),
-                'order' => [
-                    'uuid' => $transactionModel->order->uuid,
-                ],
-                'message' => __('Payment already confirmed. Redirecting...!', 'flutterwave-for-fluent-cart'),
-                'status' => 'success'
-            ], 200);
-        }
+        // if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
+        //     wp_send_json([
+        //         'redirect_url' => $transactionModel->getReceiptPageUrl(),
+        //         'order' => [
+        //             'uuid' => $transactionModel->order->uuid,
+        //         ],
+        //         'message' => __('Payment already confirmed. Redirecting...!', 'flutterwave-for-fluent-cart'),
+        //         'status' => 'success'
+        //     ], 200);
+        // }
 
         $flutterwaveTransactionId = Arr::get($data, 'id');
 
@@ -180,18 +180,17 @@ class FlutterwaveConfirmations
             return;
         }
 
-        // Flutterwave returns amount in main currency unit, convert to lowest unit
         $amount = FlutterwaveHelper::convertToLowestUnit(
             Arr::get($transactionData, 'amount', 0),
             Arr::get($transactionData, 'currency')
         );
+
         $currency = Arr::get($transactionData, 'currency');
 
         // Store flw_ref for future refund matching via webhook
         $flwRef = Arr::get($transactionData, 'flw_ref', '');
         $txRef = Arr::get($transactionData, 'tx_ref', '');
 
-        // Merge billing info with flw_ref and tx_ref for refund matching
         $metaData = array_merge($transactionModel->meta ?? [], $billingInfo, [
             'flw_ref' => $flwRef,
             'tx_ref'  => $txRef,

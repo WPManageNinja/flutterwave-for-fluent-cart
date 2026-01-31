@@ -14,6 +14,7 @@ use FluentCart\App\Services\DateTime\DateTime;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
 use FlutterwaveFluentCart\Confirmations\FlutterwaveConfirmations;
 use FlutterwaveFluentCart\FlutterwaveHelper;
+use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\Subscriptions\FlutterwaveSubscriptions;
 use FlutterwaveFluentCart\Refund\FlutterwaveRefund;
 
@@ -99,6 +100,7 @@ class FlutterwaveWebhook
         } elseif (isset($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE'])) {
             $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE']));
         }
+
         if (!$secretHash) {
             return false;
         }
@@ -131,53 +133,85 @@ class FlutterwaveWebhook
     {
         $flutterwaveTransaction = Arr::get($data, 'payload');
         $flutterwaveTransactionId = Arr::get($flutterwaveTransaction, 'id');
+        $txRef = Arr::get($flutterwaveTransaction, 'tx_ref', '');
+        $status = Arr::get($flutterwaveTransaction, 'status', '');
 
-        // Flutterwave may send status as 'successful' (v2) or 'succeeded' (v3/v4)
-        $status = Arr::get($flutterwaveTransaction, 'status');
+
+        $flutterwaveTransaction = FlutterwaveAPI::getFlutterwaveObject('transactions/' . $flutterwaveTransactionId . '/verify');
+
+        if (!is_wp_error($flutterwaveTransaction)) {
+            $flutterwaveTransaction = Arr::get($flutterwaveTransaction, 'data', []);
+            $status = Arr::get($flutterwaveTransaction, 'status');
+            $txRef = Arr::get($flutterwaveTransaction, 'tx_ref', '');
+
+        }
+
         if (!in_array($status, ['successful', 'succeeded'], true)) {
             $this->sendResponse(200, 'Transaction not successful, skipping.');
         }
 
-        $txRef = Arr::get($flutterwaveTransaction, 'tx_ref', '');
+    
         $transactionMeta = Arr::get($flutterwaveTransaction, 'meta', []);
         $transactionHash = Arr::get($transactionMeta, 'transaction_hash', '');
 
         // Try to get from tx_ref if not in meta
-        if (!$transactionHash && $txRef) {
+        $refType = '';
+        $refHash = '';
+        if ($txRef) {
             $parts = explode('_', $txRef);
-            $transactionHash = $parts[0] ?? '';
+            $refHash = $parts[1] ?? '';
+            $refType = $parts[0] ?? '';
         }
 
         $transactionModel = null;
+        $subscriptionModel = null;
 
-        if ($transactionHash) {
-            $transactionModel = OrderTransaction::query()
-                ->where('uuid', $transactionHash)
-                ->where('payment_method', 'flutterwave')
-                ->first();
-        }
+        if ($refHash && $refType) {
+            if ($refType == 'subscription') {
+                $subscriptionModel = Subscription::query()
+                    ->where('uuid', $refHash)
+                    ->first();
+                
+                if (!$subscriptionModel) {
+                    $this->sendResponse(200, 'Subscription not found or not active for the provided reference.');
+                }
 
-        if (!$transactionModel) {
-            $this->sendResponse(200, 'Transaction not found for the provided reference.');
+            
+                if ($subscriptionModel->bill_count > 0) {
+                    $this->processSubscriptionRecurringPayment($flutterwaveTransaction, $subscriptionModel);
+                }
+
+                // get the first transaction for the subscription
+                $firstTransaction = OrderTransaction::query()
+                    ->where('subscription_id', $subscriptionModel->id)
+                    ->where('payment_method', 'flutterwave')
+                    ->first();
+                
+                if (!$firstTransaction) {
+                    $this->sendResponse(200, 'First transaction not found for the subscription.');
+                }
+
+                $transactionModel = $firstTransaction;
+            } else if ($refType == 'onetime') {
+                $transactionModel = OrderTransaction::query()
+                    ->where('uuid', $refHash)
+                    ->where('payment_method', 'flutterwave')
+                    ->first();
+                if (!$transactionModel && $transactionHash) {
+                    $transactionModel = OrderTransaction::query()
+                        ->where('uuid', $transactionHash)
+                        ->where('payment_method', 'flutterwave')
+                        ->first();
+                }
+                
+                if (!$transactionModel || $transactionModel->status != Status::TRANSACTION_SUCCEEDED) {
+                    $this->sendResponse(200, 'Transaction not found or not successful for the provided reference.');
+                }
+            }    
         }
 
         if ($transactionModel->status == Status::TRANSACTION_SUCCEEDED) {
             $this->sendResponse(200, 'Transaction already processed.');
-        }
-
-        $subscriptionHash = Arr::get($transactionMeta, 'subscription_hash', '');
-        $subscriptionModel = null;
-
-        if ($subscriptionHash) {
-            $subscriptionModel = Subscription::query()
-                ->where('uuid', $subscriptionHash)
-                ->first();
-        }
-
-        if ($transactionModel->subscription_id) {
-            $subscriptionModel = Subscription::query()
-                ->where('id', $transactionModel->subscription_id)
-                ->first();
         }
 
         $billingInfo = [
@@ -189,9 +223,9 @@ class FlutterwaveWebhook
             'customer' => Arr::get($flutterwaveTransaction, 'customer'),
         ];
 
-        $updatedSubData = [];
+        $subscriptionData = [];
         if ($subscriptionModel && !in_array($subscriptionModel->status, [Status::SUBSCRIPTION_ACTIVE, Status::SUBSCRIPTION_TRIALING])) {
-            $updatedSubData = (new FlutterwaveSubscriptions())->activateSubscription($subscriptionModel, [
+            $subscriptionData = (new FlutterwaveSubscriptions())->getSubscriptionData($subscriptionModel, [
                 'flutterwave_transaction' => $flutterwaveTransaction,
                 'billing_info' => $billingInfo,
             ]);
@@ -200,9 +234,10 @@ class FlutterwaveWebhook
         (new FlutterwaveConfirmations())->confirmPaymentSuccessByCharge($transactionModel, [
             'vendor_charge_id' => $flutterwaveTransactionId,
             'charge' => $flutterwaveTransaction,
-            'subscription_data' => $updatedSubData,
+            'subscription_data' => $subscriptionData,
             'billing_info' => $billingInfo
         ]);
+
 
         $this->sendResponse(200, 'Charge completed processed successfully');
     }
@@ -218,6 +253,16 @@ class FlutterwaveWebhook
         }
 
         $chargeId = Arr::get($flutterwaveTransaction, 'id');
+        // check if the charge id is already in the database
+        $charge = OrderTransaction::query()
+            ->where('vendor_charge_id', $chargeId)
+            ->where('payment_method', 'flutterwave')
+            ->first();
+
+        if ($charge) {
+            return null;
+        }
+
         $amount = FlutterwaveHelper::convertToLowestUnit(
             Arr::get($flutterwaveTransaction, 'amount', 0),
             Arr::get($flutterwaveTransaction, 'currency', $subscriptionModel->order->currency ?? 'USD')
@@ -483,8 +528,39 @@ class FlutterwaveWebhook
         }
 
         $txRef = Arr::get($data, 'data.tx_ref');
-        if ($txRef && !$order) {
-            $order = FlutterwaveHelper::getOrderFromTxRef($txRef);
+
+        // $order = FlutterwaveHelper::getOrderFromTxRef($txRef);
+        // if ($order) {
+        //     return $order;
+        // }
+
+        $refType = '';
+        $refHash = '';
+        if ($txRef) {
+            $parts = explode('_', $txRef);
+            $refHash = $parts[1] ?? '';
+            $refType = $parts[0] ?? '';
+        }
+        
+
+        if ($refHash && $refType) {
+            if ($refType == 'subscription') {
+                $subscriptionModel = Subscription::query()
+                    ->where('uuid', $refHash)
+                    ->first();
+                if ($subscriptionModel) {
+                    $order = Order::query()->where('id', $subscriptionModel->parent_order_id)->first();
+                }
+            }
+            if ($refType == 'onetime') {
+                $transactionModel = OrderTransaction::query()
+                    ->where('uuid', $refHash)
+                    ->where('payment_method', 'flutterwave')
+                    ->first();
+                if ($transactionModel) {
+                    $order = Order::query()->where('id', $transactionModel->order_id)->first();
+                }
+            }
         }
 
         // subscription hash

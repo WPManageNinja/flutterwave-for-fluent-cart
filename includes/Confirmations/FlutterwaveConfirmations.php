@@ -7,6 +7,7 @@ use FluentCart\App\Helpers\StatusHelper;
 use FluentCart\App\Models\Order;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
+use FluentCart\App\Events\Subscription\SubscriptionActivated;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\Framework\Support\Arr;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
@@ -83,15 +84,33 @@ class FlutterwaveConfirmations
         $transactionHash = Arr::get($transactionMeta, 'transaction_hash', '');
 
         // Try to get from tx_ref if not in meta
-        if (!$transactionHash) {
+        $refType = '';
+        $refHash = '';
+        if ($txRef) {
             $txRefFromResponse = Arr::get($data, 'tx_ref', '');
             $parts = explode('_', $txRefFromResponse);
-            $transactionHash = $parts[0] ?? '';
+            $refHash = $parts[1] ?? '';
+            $refType = $parts[0] ?? '';
         }
 
         $transactionModel = null;
+        $subscriptionModel = null;
 
-        if ($transactionHash) {
+        if ($refHash && $refType) {
+            if ($refType == 'subscription') {
+                $subscriptionModel = Subscription::query()
+                    ->where('uuid', $refHash)
+                    ->first();
+            }
+            if ($refType == 'onetime') {
+                $transactionModel = OrderTransaction::query()
+                    ->where('uuid', $refHash)
+                    ->where('payment_method', 'flutterwave')
+                    ->first();
+            }
+        }
+
+        if ($transactionHash && !$transactionModel) {
             $transactionModel = OrderTransaction::query()
                 ->where('uuid', $transactionHash)
                 ->where('payment_method', 'flutterwave')
@@ -106,16 +125,16 @@ class FlutterwaveConfirmations
         }
 
         // Check if already processed
-        // if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
-        //     wp_send_json([
-        //         'redirect_url' => $transactionModel->getReceiptPageUrl(),
-        //         'order' => [
-        //             'uuid' => $transactionModel->order->uuid,
-        //         ],
-        //         'message' => __('Payment already confirmed. Redirecting...!', 'flutterwave-for-fluent-cart'),
-        //         'status' => 'success'
-        //     ], 200);
-        // }
+        if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
+            wp_send_json([
+                'redirect_url' => $transactionModel->getReceiptPageUrl(),
+                'order' => [
+                    'uuid' => $transactionModel->order->uuid,
+                ],
+                'message' => __('Payment already confirmed. Redirecting...!', 'flutterwave-for-fluent-cart'),
+                'status' => 'success'
+            ], 200);
+        }
 
         $flutterwaveTransactionId = Arr::get($data, 'id');
 
@@ -127,26 +146,19 @@ class FlutterwaveConfirmations
             'payment_method_type' => Arr::get($data, 'payment_type'),
         ];
 
-        $subscriptionHash = Arr::get($transactionMeta, 'subscription_hash', '');
-        $updatedSubData = [];
-
-        if ($subscriptionHash) {
-            $subscriptionModel = Subscription::query()
-                ->where('uuid', $subscriptionHash)
-                ->first();
-
-            if ($subscriptionModel && !in_array($subscriptionModel->status, [Status::SUBSCRIPTION_ACTIVE, Status::SUBSCRIPTION_TRIALING])) {
-                $updatedSubData = (new FlutterwaveSubscriptions())->activateSubscription($subscriptionModel, [
-                    'flutterwave_transaction' => $data,
-                    'billing_info' => $billingInfo,
-                ]);
-            }
+        $subscriptionData = [];
+        if ($subscriptionModel) {
+            $subscriptionData = (new FlutterwaveSubscriptions())->getSubscriptionData($subscriptionModel, [
+                'flutterwave_transaction' => $data,
+                'billing_info' => $billingInfo,
+            ]);
         }
+
 
         $this->confirmPaymentSuccessByCharge($transactionModel, [
             'vendor_charge_id' => $flutterwaveTransactionId,
             'charge' => $data,
-            'subscription_data' => $updatedSubData,
+            'subscription_data' => $subscriptionData,
             'billing_info' => $billingInfo
         ]);
 
@@ -196,7 +208,6 @@ class FlutterwaveConfirmations
             'tx_ref'  => $txRef,
         ]);
 
-        // Update transaction
         $transactionUpdateData = array_filter([
             'order_id' => $order->id,
             'total' => $amount,
@@ -223,18 +234,36 @@ class FlutterwaveConfirmations
             ]
         );
 
-        if ($order->type == Status::ORDER_TYPE_RENEWAL) {
+        if ($subscriptionData) {
             $subscriptionModel = Subscription::query()->where('id', $transactionModel->subscription_id)->first();
 
-            if (!$subscriptionModel || !$subscriptionData) {
-                return $order;
-            }
-            return SubscriptionService::recordManualRenewal($subscriptionModel, $transactionModel, [
-                'billing_info'      => $billingInfo,
-                'subscription_args' => $subscriptionData
-            ]);
+            $billCount = OrderTransaction::query()
+                ->where('subscription_id', $subscriptionModel->id)
+                ->where('status', Status::TRANSACTION_SUCCEEDED)
+                ->where('vendor_charge_id', '!=', '')
+                ->count();
+
+            $subscriptionData['bill_count'] = $billCount;
+
+            if ($order->type == Status::ORDER_TYPE_RENEWAL) {
+                SubscriptionService::recordManualRenewal($subscriptionModel, $transactionModel, [
+                    'billing_info'      => $billingInfo,
+                    'subscription_args' => $subscriptionData
+                ]);
+            } else {
+                $oldStatus = $subscriptionModel->status;
+                $subscriptionModel->update($subscriptionData);
+                $subscriptionModel->updateMeta('active_payment_method', $billingInfo);
+    
+                if ($oldStatus != $subscriptionModel->status && in_array($subscriptionModel->status, [Status::SUBSCRIPTION_ACTIVE, Status::SUBSCRIPTION_TRIALING])) {
+                    (new SubscriptionActivated($subscriptionModel, $order, $order->customer))->dispatch();
+                }
+
+                return (new StatusHelper($order))->syncOrderStatuses($transactionModel);
+
+            } 
         }
 
-        return (new StatusHelper($order))->syncOrderStatuses($transactionModel);
+        return $order;
     }
 }

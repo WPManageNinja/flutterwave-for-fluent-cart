@@ -5,7 +5,6 @@ namespace FlutterwaveFluentCart\Subscriptions;
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Models\Subscription;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractSubscriptionModule;
-use FluentCart\App\Events\Subscription\SubscriptionActivated;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;
@@ -53,7 +52,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'vendor_plan_id' => $planId,
         ]);
 
-        $txRef = $transaction->uuid . '_' . time();
+        $txRef = 'subscription_' . $subscription->uuid . '_' . time();
 
 
         $firstChargeAmount = $transaction->total;
@@ -183,14 +182,11 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         return $plan;
     }
 
-    public function activateSubscription($subscriptionModel, $args = [])
+    public function getSubscriptionData($subscriptionModel, $args = [])
     {
-        $order = $subscriptionModel->order;
-        $oldStatus = $subscriptionModel->status;
         $flutterwaveTransaction = Arr::get($args, 'flutterwave_transaction', []);
-        $billingInfo = Arr::get($args, 'billing_info', []);
-
         $nextBillingDate = $this->calculateNextBillingDate($subscriptionModel);
+        $flutterwaveSubscription = null;
 
         $vendorSubscriptionId = null;
         $customerId = Arr::get($flutterwaveTransaction, 'customer.id');
@@ -204,6 +200,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                 $subs = Arr::get($flutterwaveSubscriptions, 'data', []);
                 foreach ($subs as $sub) {
                     if (Arr::get($sub, 'plan') == $subscriptionModel->vendor_plan_id) {
+                        $flutterwaveSubscription = $sub;
                         $vendorSubscriptionId = Arr::get($sub, 'id');
                         break;
                     }
@@ -218,27 +215,11 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'vendor_customer_id'     => $customerId,
             'next_billing_date'      => $nextBillingDate,
             'current_payment_method' => 'flutterwave',
+            'vendor_response'        => json_encode($flutterwaveSubscription),
         ];
 
         if ($vendorSubscriptionId) {
             $updateData['vendor_subscription_id'] = $vendorSubscriptionId;
-        }
-
-        $subscriptionModel->update($updateData);
-        $subscriptionModel->updateMeta('active_payment_method', $billingInfo);
-
-        fluent_cart_add_log(
-            __('Flutterwave Subscription Activated', 'flutterwave-for-fluent-cart'),
-            'Subscription activated via Flutterwave. Plan ID: ' . $subscriptionModel->vendor_plan_id,
-            'info',
-            [
-                'module_name' => 'order',
-                'module_id'   => $order->id
-            ]
-        );
-
-        if ($oldStatus != $subscriptionModel->status && in_array($subscriptionModel->status, [Status::SUBSCRIPTION_ACTIVE, Status::SUBSCRIPTION_TRIALING])) {
-            (new SubscriptionActivated($subscriptionModel, $order, $order->customer))->dispatch();
         }
 
         return $updateData;

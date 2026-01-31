@@ -9,6 +9,7 @@ use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;
 use FluentCart\App\Models\Product;
+use FluentCart\App\Models\OrderTransaction;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\FlutterwaveHelper;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
@@ -52,7 +53,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'vendor_plan_id' => $planId,
         ]);
 
-        $txRef = 'subscription_' . $subscription->uuid . '_' . time();
+        $txRef = 'subscription_' . $subscription->uuid;
 
 
         $firstChargeAmount = $transaction->total;
@@ -186,29 +187,31 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
     {
         $flutterwaveTransaction = Arr::get($args, 'flutterwave_transaction', []);
         $nextBillingDate = $this->calculateNextBillingDate($subscriptionModel);
+     
         $flutterwaveSubscription = null;
 
         $vendorSubscriptionId = null;
-        $customerId = Arr::get($flutterwaveTransaction, 'customer.id');
+        $customerId = null;
 
-        if ($customerId && $subscriptionModel->vendor_plan_id) {
-            $flutterwaveSubscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', [
-                'email' => Arr::get($flutterwaveTransaction, 'customer.email')
-            ]);
+        $vendorTransactionId = null;
 
-            if (!is_wp_error($flutterwaveSubscriptions)) {
-                $subs = Arr::get($flutterwaveSubscriptions, 'data', []);
-                foreach ($subs as $sub) {
-                    if (Arr::get($sub, 'plan') == $subscriptionModel->vendor_plan_id) {
-                        $flutterwaveSubscription = $sub;
-                        $vendorSubscriptionId = Arr::get($sub, 'id');
-                        break;
-                    }
-                }
+        if ($flutterwaveTransaction) {
+            $vendorTransactionId = Arr::get($flutterwaveTransaction, 'id');
+        } else {
+            $vendorTransactionId = Arr::get($args, 'vendor_transaction_id', '');
+        }  
+
+        if ($subscriptionModel->vendor_plan_id) {
+            // get subscriptions by 'transaction_id' is the same as the flutterwave transaction id
+            $flutterwaveSubscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', ['transaction_id' => $vendorTransactionId]);
+            $flutterwaveSubscription = Arr::get($flutterwaveSubscriptions, 'data.0', []);
+            if ($flutterwaveSubscription) {
+                $vendorSubscriptionId = Arr::get($flutterwaveSubscription, 'id');
+                $customerId = Arr::get($flutterwaveSubscription, 'customer.id');
             }
         }
 
-        $status = $subscriptionModel->trial_days > 0 ? Status::SUBSCRIPTION_TRIALING : Status::SUBSCRIPTION_ACTIVE;
+        $status = FlutterwaveHelper::getFctSubscriptionStatus(Arr::get($flutterwaveSubscription, 'status'));
 
         $updateData = [
             'status'                 => $status,
@@ -230,12 +233,17 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         $interval = $subscriptionModel->billing_interval;
         $trialDays = $subscriptionModel->trial_days;
 
-        $now = DateTime::gmtNow();
+        $currentNextBillingDate = $subscriptionModel->next_billing_date;
 
-        if ($trialDays > 0) {
-            $now->addDays($trialDays);
+        if ($currentNextBillingDate) {
+            $now = DateTime::anyTimeToGmt($currentNextBillingDate);
+        } else {
+            $now = DateTime::gmtNow();
+            if ($trialDays > 0) {
+                $now->addDays($trialDays);
+            }
         }
-
+       
         switch ($interval) {
             case 'daily':
                 $now->addDay();
@@ -264,7 +272,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 
     public function reSyncSubscriptionFromRemote(Subscription $subscriptionModel)
     {
-        if ($subscriptionModel->current_payment_method !== 'flutterwave') {
+        if ($subscriptionModel->current_payment_method != 'flutterwave') {
             return new \WP_Error(
                 'invalid_payment_method',
                 __('This subscription is not using Flutterwave as payment method.', 'flutterwave-for-fluent-cart')
@@ -280,15 +288,86 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        $flutterwaveSubscription = FlutterwaveAPI::getFlutterwaveObject('subscriptions/' . $vendorSubscriptionId);
-        
-        if (is_wp_error($flutterwaveSubscription)) {
-            return $flutterwaveSubscription;
-        }
+        // get the vendor charge if of the first transaction
+        $transaction = OrderTransaction::query()
+            ->where('subscription_id', $subscriptionModel->id)
+            ->where('payment_method', 'flutterwave')
+            ->where('vendor_charge_id', '!=', '')
+            ->first();
 
-        $subscriptionUpdateData = FlutterwaveHelper::getSubscriptionUpdateData($flutterwaveSubscription, $subscriptionModel);
+
+        $updateData = $this->getSubscriptionData($subscriptionModel, [
+            'vendor_transaction_id' => $transaction->vendor_charge_id,
+        ]);
+
+        $trxRef = 'subscription_' . $subscriptionModel->uuid;
+
+        // get transactions by trx_ref from flutterwave
+        $flutterwaveTransactions = [];
+        $hasMore = true;
+        $currentPage = 1;
+        do {
+            $result = FlutterwaveAPI::getFlutterwaveObject('transactions', ['tx_ref' => $trxRef, 'page' => $currentPage]);
+            if (is_wp_error($result)) {
+                break;
+            }
+            $total = Arr::get($result, 'meta.total');
+            $flutterwaveTransactions = array_merge($flutterwaveTransactions, Arr::get($result, 'data', []));
+
+            if ($total > count($flutterwaveTransactions)) {
+                $currentPage++;
+            } else {
+                $hasMore = false;
+            }
+
+        } while ($hasMore);
+
         
-        $subscriptionModel = SubscriptionService::syncSubscriptionStates($subscriptionModel, $subscriptionUpdateData);
+        foreach ($flutterwaveTransactions as $flutterwaveTransaction) {
+            $transaction = OrderTransaction::query()
+                ->where('subscription_id', $subscriptionModel->id)
+                ->where('payment_method', 'flutterwave')
+                ->where('vendor_charge_id', $flutterwaveTransaction['id'])
+                ->first();
+
+            if (!$transaction) {
+               // transaction with no vendor charge id , then update and continue
+               $transaction = OrderTransaction::query()
+                ->where('subscription_id', $subscriptionModel->id)
+                ->where('payment_method', 'flutterwave')
+                ->where('vendor_charge_id', '')
+                ->first();
+
+                if ($transaction) {
+                    $transaction->update([
+                        'vendor_charge_id' => $flutterwaveTransaction['id'],
+                        'status'           => Status::TRANSACTION_SUCCEEDED,
+                        'total'            => FlutterwaveHelper::convertToLowestUnit($flutterwaveTransaction['amount'], $flutterwaveTransaction['currency']),
+                    ]);
+
+                    continue;
+                }
+
+
+                // record renewal payment
+                $transactionData = [
+                    'order_id'         => $subscriptionModel->order->id,
+                    'subscription_id'  => $subscriptionModel->id,
+                    'vendor_charge_id' => Arr::get($flutterwaveTransaction, 'id'),
+                    'last4'            => Arr::get($flutterwaveTransaction, 'card.last_4digits', null),
+                    'brand'            => Arr::get($flutterwaveTransaction, 'card.type', null),
+                    'payment_method_type' => Arr::get($flutterwaveTransaction, 'payment_type', null),
+                    'status'           => Status::TRANSACTION_SUCCEEDED,
+                    'total'            => FlutterwaveHelper::convertToLowestUnit($flutterwaveTransaction['amount'], $flutterwaveTransaction['currency']),
+                ];
+                
+                SubscriptionService::recordRenewalPayment($transactionData, $subscriptionModel, $updateData);
+               
+            }
+
+        }
+        
+        $subscriptionModel = SubscriptionService::syncSubscriptionStates($subscriptionModel, $updateData);
 
         return $subscriptionModel;
     }

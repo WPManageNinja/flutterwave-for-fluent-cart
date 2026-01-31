@@ -20,7 +20,7 @@ class FlutterwaveProcessor
         $transaction = $paymentInstance->transaction;
         $fcCustomer = $paymentInstance->order->customer;
 
-        $txRef = 'onetime_' . $transaction->uuid . '_' . time();
+        $txRef = 'onetime_' . $transaction->uuid;
 
         // Get public key for inline checkout
         $settings = new FlutterwaveSettingsBase();

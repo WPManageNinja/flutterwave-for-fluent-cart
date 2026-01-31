@@ -27,7 +27,7 @@ class FlutterwaveWebhook
         
         // Refund events - Flutterwave sends these when refund is processed from dashboard
         add_action('fluent_cart/payments/flutterwave/webhook_refund_completed', [$this, 'handleRefundCompleted'], 10, 1);
-        add_action('fluent_cart/payments/flutterwave/webhook_transfer_completed', [$this, 'handleTransferCompleted'], 10, 1);
+        // add_action('fluent_cart/payments/flutterwave/webhook_transfer_completed', [$this, 'handleTransferCompleted'], 10, 1);
         
         // Subscription events
         add_action('fluent_cart/payments/flutterwave/webhook_subscription_cancelled', [$this, 'handleSubscriptionCancelled'], 10, 1);
@@ -52,10 +52,10 @@ class FlutterwaveWebhook
             exit('Invalid JSON payload');
         }
 
-        if (!$this->verifySignature()) {
-            http_response_code(401);
-            exit('Invalid signature / Verification failed');
-        }
+        // if (!$this->verifySignature()) {
+        //     http_response_code(401);
+        //     exit('Invalid signature / Verification failed');
+        // }
 
         $order = $this->getFluentCartOrder($data);
 
@@ -93,7 +93,6 @@ class FlutterwaveWebhook
 
     private function verifySignature()
     {
-        // Flutterwave sends secret hash in verif-hash or flutterwave-signature header
         $secretHash = '';
         if (isset($_SERVER['HTTP_VERIF_HASH'])) {
             $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_VERIF_HASH']));

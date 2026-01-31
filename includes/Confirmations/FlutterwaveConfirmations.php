@@ -73,7 +73,7 @@ class FlutterwaveConfirmations
         $data = Arr::get($flutterwaveTransaction, 'data', []);
         $paymentStatus = Arr::get($data, 'status');
 
-        if ($paymentStatus !== 'successful') {
+        if (!in_array($paymentStatus, ['successful', 'succeeded'], true)) {
             wp_send_json([
                 'message' => sprintf(__('Payment status: %s', 'flutterwave-for-fluent-cart'), $paymentStatus),
                 'status' => 'failed'
@@ -144,6 +144,7 @@ class FlutterwaveConfirmations
             'brand' => Arr::get($data, 'card.type'),
             'payment_method_id' => $flutterwaveTransactionId,
             'payment_method_type' => Arr::get($data, 'payment_type'),
+            'customer' => Arr::get($data, 'customer'),
         ];
 
         $subscriptionData = [];
@@ -153,7 +154,6 @@ class FlutterwaveConfirmations
                 'billing_info' => $billingInfo,
             ]);
         }
-
 
         $this->confirmPaymentSuccessByCharge($transactionModel, [
             'vendor_charge_id' => $flutterwaveTransactionId,
@@ -191,6 +191,7 @@ class FlutterwaveConfirmations
         if (!$order) {
             return;
         }
+
 
         $amount = FlutterwaveHelper::convertToLowestUnit(
             Arr::get($transactionData, 'amount', 0),
@@ -258,12 +259,9 @@ class FlutterwaveConfirmations
                 if ($oldStatus != $subscriptionModel->status && in_array($subscriptionModel->status, [Status::SUBSCRIPTION_ACTIVE, Status::SUBSCRIPTION_TRIALING])) {
                     (new SubscriptionActivated($subscriptionModel, $order, $order->customer))->dispatch();
                 }
-
-                return (new StatusHelper($order))->syncOrderStatuses($transactionModel);
-
             } 
         }
 
-        return $order;
+        return (new StatusHelper($order))->syncOrderStatuses($transactionModel);
     }
 }

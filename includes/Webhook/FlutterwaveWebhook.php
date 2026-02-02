@@ -52,10 +52,10 @@ class FlutterwaveWebhook
             exit('Invalid JSON payload');
         }
 
-        // if (!$this->verifySignature()) {
-        //     http_response_code(401);
-        //     exit('Invalid signature / Verification failed');
-        // }
+        if (!$this->verifySignature()) {
+            http_response_code(401);
+            exit('Invalid signature / Verification failed');
+        }
 
         $order = $this->getFluentCartOrder($data);
 

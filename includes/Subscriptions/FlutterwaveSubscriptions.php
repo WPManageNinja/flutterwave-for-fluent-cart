@@ -63,14 +63,13 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         ]);
 
         $txRef = 'subscription_' . $subscription->uuid;
+        $firstChargeAmount = $this->calculateFirstChargeAmount($subscription, $transaction);
 
-        if ($isRenewal) {
-            $firstChargeAmount = (int) $transaction->total;
-        } else {
-            $firstChargeAmount = $this->calculateFirstChargeAmount($subscription, $transaction);
-            if (is_wp_error($firstChargeAmount)) {
-                return $firstChargeAmount;
-            }
+        if ($firstChargeAmount <= 0) {
+            return new \WP_Error(
+                'flutterwave_zero_amount_not_supported',
+                __('Flutterwave does not support $0 first payment. A 100% discount coupon cannot be used with Flutterwave subscriptions.', 'flutterwave-for-fluent-cart')
+            );
         }
 
         $inlineData = [

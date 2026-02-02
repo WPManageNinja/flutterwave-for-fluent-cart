@@ -2,6 +2,11 @@
 
 namespace FlutterwaveFluentCart;
 
+// Prevent direct access.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;

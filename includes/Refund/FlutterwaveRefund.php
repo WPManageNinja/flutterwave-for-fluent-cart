@@ -2,6 +2,11 @@
 
 namespace FlutterwaveFluentCart\Refund;
 
+// Prevent direct access.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Services\Payments\PaymentHelper;
@@ -47,6 +52,7 @@ class FlutterwaveRefund
         if (!in_array($refundStatus, $acceptedStatuses)) {
             return new \WP_Error(
                 'refund_failed',
+                /* translators: %s: Refund status from Flutterwave */
                 sprintf(__('Refund status: %s. Please check your Flutterwave account', 'flutterwave-for-fluent-cart'), $refundStatus)
             );
         }

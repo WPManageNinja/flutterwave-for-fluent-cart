@@ -222,21 +222,31 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     }
 
     public function getWebhookInstructions(): string
-    { 
+    {
         $webhook_url = site_url('?fluent-cart=fct_payment_listener_ipn&method=flutterwave');
         $configureLink = 'https://dashboard.flutterwave.com/settings/webhooks';
 
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped below with esc_html and esc_url
         return sprintf(
             '<div>
                 <p><b>%s</b><code class="copyable-content">%s</code></p>
                 <p>%s</p>
             </div>',
-            __('Webhook URL: ', 'flutterwave-for-fluent-cart'),
+            esc_html__('Webhook URL: ', 'flutterwave-for-fluent-cart'),
             esc_html($webhook_url),
-            sprintf(
-                __('Configure this webhook URL in your Flutterwave Dashboard under Settings > Webhooks. You can access the <a href="%1$s" target="_blank">%2$s</a> here.', 'flutterwave-for-fluent-cart'),
-                esc_url($configureLink),
-                __('Flutterwave Webhook Settings Page', 'flutterwave-for-fluent-cart')
+            wp_kses(
+                sprintf(
+                    /* translators: %1$s: URL to Flutterwave webhook settings, %2$s: Link text */
+                    __('Configure this webhook URL in your Flutterwave Dashboard under Settings > Webhooks. You can access the <a href="%1$s" target="_blank">%2$s</a> here.', 'flutterwave-for-fluent-cart'),
+                    esc_url($configureLink),
+                    esc_html__('Flutterwave Webhook Settings Page', 'flutterwave-for-fluent-cart')
+                ),
+                [
+                    'a' => [
+                        'href'   => [],
+                        'target' => [],
+                    ],
+                ]
             )
         );
     }

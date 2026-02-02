@@ -2,6 +2,11 @@
 
 namespace FlutterwaveFluentCart\Webhook;
 
+// Prevent direct access.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Models\Order;
 use FluentCart\App\Models\OrderTransaction;
@@ -42,21 +47,21 @@ class FlutterwaveWebhook
 
         if (is_wp_error($payload)) {
             http_response_code(400);
-            exit('Not valid payload');
+            exit('Not valid payload'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
         }
 
         $data = json_decode($payload, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
             http_response_code(400);
-            exit('Invalid JSON payload');
+            exit('Invalid JSON payload'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
         }
 
         $event = Arr::get($data, 'event', '');
 
         if (!in_array($event, ['subscription.cancelled']) && !$this->verifySignature()) {
             http_response_code(401);
-            exit('Invalid signature / Verification failed');
+            exit('Invalid signature / Verification failed'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
         }
 
         $order = $this->getFluentCartOrder($data);
@@ -75,7 +80,7 @@ class FlutterwaveWebhook
         }
 
         http_response_code(200);
-        exit('Webhook received but not handled: ' . $event);
+        exit('Webhook received but not handled: ' . esc_html($event)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
     }
 
     private function getWebhookPayload()
@@ -101,6 +106,9 @@ class FlutterwaveWebhook
         }
 
         if (!$secretHash) {
+            if (!isset($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE'])) {
+                return false;
+            }
             $signature = sanitize_text_field(wp_unslash($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE']));
             if (!$signature) {
                 return false;
@@ -344,7 +352,7 @@ class FlutterwaveWebhook
         
         // Only process completed refunds
         if ($refundStatus !== 'completed' && $refundStatus !== 'successful') {
-            $this->sendResponse(200, 'Refund not completed, skipping. Status: ' . $refundStatus);
+            $this->sendResponse(200, 'Refund not completed, skipping. Status: ' . sanitize_text_field($refundStatus));
         }
 
         // Get the original transaction ID from the refund data
@@ -414,7 +422,8 @@ class FlutterwaveWebhook
             fluent_cart_add_log(
                 __('Flutterwave Refund Processed', 'flutterwave-for-fluent-cart'),
                 sprintf(
-                    __('Refund of %s %s processed via webhook. Refund ID: %s', 'flutterwave-for-fluent-cart'),
+                    /* translators: %1$s: Currency code, %2$s: Refund amount, %3$s: Refund ID */
+                    __('Refund of %1$s %2$s processed via webhook. Refund ID: %3$s', 'flutterwave-for-fluent-cart'),
                     $refundCurrency,
                     FlutterwaveHelper::formatAmountForFlutterwave($amount, $refundCurrency),
                     $refundId
@@ -493,7 +502,8 @@ class FlutterwaveWebhook
             fluent_cart_add_log(
                 __('Flutterwave Transfer/Refund Processed', 'flutterwave-for-fluent-cart'),
                 sprintf(
-                    __('Transfer/Refund of %s %s processed via webhook. ID: %s', 'flutterwave-for-fluent-cart'),
+                    /* translators: %1$s: Currency code, %2$s: Refund amount, %3$s: Transfer/Refund ID */
+                    __('Transfer/Refund of %1$s %2$s processed via webhook. ID: %3$s', 'flutterwave-for-fluent-cart'),
                     $refundCurrency,
                     FlutterwaveHelper::formatAmountForFlutterwave($amount, $refundCurrency),
                     $refundId
@@ -663,10 +673,11 @@ class FlutterwaveWebhook
     protected function sendResponse($statusCode = 200, $message = 'Success')
     {
         http_response_code($statusCode);
-        echo json_encode([
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON response for webhook
+        echo wp_json_encode([
             'message' => $message,
         ]);
 
-        exit;
+        exit; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook termination
     }
 }

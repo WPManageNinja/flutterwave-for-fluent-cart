@@ -2,6 +2,11 @@
 
 namespace FlutterwaveFluentCart\Onetime;
 
+// Prevent direct access.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use FluentCart\App\Services\Payments\PaymentInstance;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\FlutterwaveHelper;
@@ -50,6 +55,7 @@ class FlutterwaveProcessor
             ],
             'customizations' => [
                 'title'       => get_bloginfo('name'),
+                /* translators: %s: Order ID */
                 'description' => sprintf(__('Payment for Order #%s', 'flutterwave-for-fluent-cart'), $order->id),
                 'logo'        => get_site_icon_url(),
             ]

@@ -2,6 +2,11 @@
 
 namespace FlutterwaveFluentCart\Confirmations;
 
+// Prevent direct access.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Helpers\StatusHelper;
 use FluentCart\App\Models\Order;
@@ -75,6 +80,7 @@ class FlutterwaveConfirmations
 
         if (!in_array($paymentStatus, ['successful', 'succeeded'], true)) {
             wp_send_json([
+                /* translators: %s: Payment status from Flutterwave */
                 'message' => sprintf(__('Payment status: %s', 'flutterwave-for-fluent-cart'), $paymentStatus),
                 'status' => 'failed'
             ], 400);

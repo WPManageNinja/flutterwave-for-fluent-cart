@@ -2,6 +2,11 @@
 
 namespace FlutterwaveFluentCart\Subscriptions;
 
+// Prevent direct access.
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Models\Subscription;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractSubscriptionModule;
@@ -76,6 +81,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             ],
             'customizations' => [
                 'title'       => get_bloginfo('name'),
+                /* translators: %s: Subscription item name */
                 'description' => sprintf(__('Subscription for %s', 'flutterwave-for-fluent-cart'), $subscription->item_name),
                 'logo'        => get_site_icon_url(),
             ]

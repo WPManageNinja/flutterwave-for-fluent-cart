@@ -39,14 +39,18 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        if (!empty($subscription->trial_days) && (int) $subscription->trial_days > 0) {
-            return new \WP_Error(
-                'flutterwave_trial_not_supported',
-                __('Flutterwave does not support subscriptions with a trial period. Please choose another payment method or remove the trial from this product.', 'flutterwave-for-fluent-cart')
-            );
+        // Detect if this is a reactivation (renewal order)
+        $isRenewal = $order->type === Status::ORDER_TYPE_RENEWAL;
+
+        // Validate trial days compatibility with Flutterwave (skip for renewals)
+        if (!$isRenewal) {
+            $trialValidation = $this->validateTrialDays($subscription);
+            if (is_wp_error($trialValidation)) {
+                return $trialValidation;
+            }
         }
 
-        $plan = self::getOrCreateFlutterwavePlan($paymentInstance);
+        $plan = self::getOrCreateFlutterwavePlan($paymentInstance, $isRenewal);
 
         if (is_wp_error($plan)) {
             return $plan;
@@ -60,8 +64,14 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 
         $txRef = 'subscription_' . $subscription->uuid;
 
-
-        $firstChargeAmount = $transaction->total;
+        if ($isRenewal) {
+            $firstChargeAmount = (int) $transaction->total;
+        } else {
+            $firstChargeAmount = $this->calculateFirstChargeAmount($subscription, $transaction);
+            if (is_wp_error($firstChargeAmount)) {
+                return $firstChargeAmount;
+            }
+        }
 
         $inlineData = [
             'public_key'   => $publicKey,
@@ -74,10 +84,15 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                 'name'  => trim($fcCustomer->first_name . ' ' . $fcCustomer->last_name),
             ],
             'meta'         => [
-                'order_id'          => $order->id,
-                'order_hash'        => $order->uuid,
-                'transaction_hash'  => $transaction->uuid,
-                'subscription_hash' => $subscription->uuid,
+                'order_id'            => $order->id,
+                'order_hash'          => $order->uuid,
+                'transaction_hash'    => $transaction->uuid,
+                'subscription_hash'   => $subscription->uuid,
+                'trial_days'          => $subscription->trial_days ?? 0,
+                'is_simulated_trial'  => Arr::get($subscription->config, 'is_trial_days_simulated', 'no'),
+                'first_charge_amount' => FlutterwaveHelper::formatAmountForFlutterwave($firstChargeAmount, $transaction->currency),
+                'recurring_amount'    => FlutterwaveHelper::formatAmountForFlutterwave($subscription->recurring_total, $transaction->currency),
+                'is_renewal'          => $isRenewal ? 'yes' : 'no',
             ],
             'customizations' => [
                 'title'       => get_bloginfo('name'),
@@ -110,15 +125,19 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                 'transaction_hash' => $transaction->uuid,
             ]
         ];
+
     }
 
-    public static function getOrCreateFlutterwavePlan($paymentInstance)
+    public static function getOrCreateFlutterwavePlan($paymentInstance, $isRenewal = false)
     {
         $subscription = $paymentInstance->subscription;
         $order = $paymentInstance->order;
         $transaction = $paymentInstance->transaction;
         $variation = $subscription->variation;
         $product = $subscription->product;
+
+        // For reactivation, use remaining bill times; otherwise use original bill_times
+        $billTimes = $isRenewal ? $subscription->getRequiredBillTimes() : $subscription->bill_times;
 
         $interval = FlutterwaveHelper::mapIntervalToFlutterwave($subscription->billing_interval);
 
@@ -129,13 +148,14 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'payment_method' => 'flutterwave',
         ]);
 
+        // Plan ID includes bill times (will differ for reactivation if remaining charges differ)
         $fctFlutterwavePlanId = 'fct_flutterwave_plan_'
             . $order->mode . '_'
             . $product->id . '_'
             . $order->variation_id . '_'
             . $subscription->recurring_total . '_'
             . $subscription->billing_interval . '_'
-            . $subscription->bill_times . '_'
+            . $billTimes . '_'
             . $transaction->currency;
 
         $planData = [
@@ -145,10 +165,8 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'currency' => strtoupper($transaction->currency),
         ];
 
-        // Flutterwave duration = number of charges AFTER the first; total charges = 1 + duration.
-        // So for bill_times total payments we send duration = bill_times - 1.
-        if ($subscription->bill_times && $subscription->bill_times > 0) {
-            $planData['duration'] = max(0, (int) $subscription->bill_times - 1);
+        if ($billTimes && $billTimes > 0) {
+            $planData['duration'] = max(0, (int) $billTimes - 1);
         }
 
         $fctFlutterwavePlanId = apply_filters('fluent_cart/flutterwave_plan_id', $fctFlutterwavePlanId, [
@@ -276,6 +294,128 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         return $now->format('Y-m-d H:i:s');
     }
 
+    /**
+     * Validate that trial_days is compatible with Flutterwave's billing model.
+     * Flutterwave can only do "first period free" - it cannot do custom trial days
+     * that don't match the billing interval.
+     */
+    private function validateTrialDays($subscription)
+    {
+        $trialDays = (int) ($subscription->trial_days ?? 0);
+
+        if ($trialDays <= 0) {
+            return true; // No trial, no validation needed
+        }
+
+        $isSimulatedTrial = Arr::get($subscription->config, 'is_trial_days_simulated', 'no') === 'yes';
+
+        if ($isSimulatedTrial) {
+            return true; // Simulated trials (coupons) always work - just different first charge amount
+        }
+
+        // Real trial: check if trial_days covers at least one full billing period
+        $minTrialDays = $this->getMinTrialDaysForInterval($subscription->billing_interval);
+
+        if ($trialDays < $minTrialDays) {
+            return new \WP_Error(
+                'flutterwave_trial_not_supported',
+                sprintf(
+                    /* translators: %1$d: configured trial days, %2$d: minimum required days, %3$s: billing interval */
+                    __('Flutterwave does not support %1$d-day trials for %3$s subscriptions. Minimum trial period is %2$d days (one full billing cycle). Consider using a different payment method or adjusting the trial period.', 'flutterwave-for-fluent-cart'),
+                    $trialDays,
+                    $minTrialDays,
+                    $subscription->billing_interval
+                )
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Get minimum trial days required for a billing interval.
+     * Flutterwave can only offer "first period free", so trial must be >= one full period.
+     */
+    private function getMinTrialDaysForInterval($interval)
+    {
+        $intervalDays = [
+            'daily'       => 1,
+            'weekly'      => 7,
+            'monthly'     => 30,
+            'quarterly'   => 90,
+            'half_yearly' => 180,
+            'yearly'      => 365,
+        ];
+
+        return $intervalDays[$interval] ?? 30;
+    }
+
+    /**
+     * Calculate the first charge amount based on trial/coupon status.
+     * Returns WP_Error if amount is invalid (e.g., $0 for real trials).
+     *
+     * @return int|\WP_Error
+     */
+    private function calculateFirstChargeAmount($subscription, $transaction)
+    {
+        $trialDays = (int) ($subscription->trial_days ?? 0);
+        $isSimulatedTrial = Arr::get($subscription->config, 'is_trial_days_simulated', 'no') === 'yes';
+
+        if ($isSimulatedTrial) {
+            $amount = (int) $transaction->total;
+
+            if ($amount <= 0) {
+                $minimumAmount = $this->getMinimumChargeAmount($transaction->currency);
+                if ($minimumAmount > 0) {
+                    return $minimumAmount;
+                }
+
+                return new \WP_Error(
+                    'flutterwave_zero_amount_not_supported',
+                    __('Flutterwave does not support $0 first payment. A 100% discount coupon cannot be used with Flutterwave subscriptions.', 'flutterwave-for-fluent-cart')
+                );
+            }
+
+            return $amount;
+        }
+
+        if ($trialDays > 0) {
+            $minimumAmount = $this->getMinimumChargeAmount($transaction->currency);
+
+            if ($minimumAmount <= 0) {
+                return new \WP_Error(
+                    'flutterwave_trial_zero_not_supported',
+                    __('Flutterwave does not support $0 first payment for trials. Please configure a minimum trial amount using the "flutterwave-for-fluent-cart/minimum_trial_amounts" filter, or use a different payment method.', 'flutterwave-for-fluent-cart')
+                );
+            }
+
+            return $minimumAmount;
+        }
+
+        return (int) $transaction->total;
+    }
+
+    /**
+     * Get minimum charge amount for a currency (in lowest unit - cents/kobo).
+     * Defaults to 0 (which will trigger an error). Developers can use the filter
+     * to set minimum amounts per currency based on their Flutterwave testing.
+     *
+     * Example filter usage:
+     * add_filter('flutterwave-for-fluent-cart/minimum_trial_amounts', function($amounts) {
+     *     $amounts['NGN'] = 10000; // 100 Naira in kobo
+     *     $amounts['USD'] = 100;   // 1 USD in cents
+     *     return $amounts;
+     * });
+     */
+    private function getMinimumChargeAmount($currency)
+    {
+        $minimumAmounts = apply_filters('flutterwave-for-fluent-cart/minimum_trial_amounts', [
+            'default' => 0
+        ]);
+
+        return $minimumAmounts[strtoupper($currency)] ?? $minimumAmounts['default'] ?? 0;
+    }
+
     public function reSyncSubscriptionFromRemote(Subscription $subscriptionModel)
     {
         if ($subscriptionModel->current_payment_method != 'flutterwave') {
@@ -324,7 +464,6 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 
         } while ($hasMore);
 
-        
         foreach ($flutterwaveTransactions as $flutterwaveTransaction) {
             $transaction = OrderTransaction::query()
                 ->where('subscription_id', $subscriptionModel->id)

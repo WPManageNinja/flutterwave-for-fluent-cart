@@ -12,8 +12,6 @@ use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;
 use FluentCart\App\Models\Order;
 use FluentCart\App\Models\OrderTransaction;
-use FluentCart\App\Models\SubscriptionMeta;
-use FluentCart\App\Models\Subscription;
 use FluentCart\Api\CurrencySettings;
 
 class FlutterwaveHelper
@@ -45,7 +43,7 @@ class FlutterwaveHelper
             'weekly'      => 'weekly',
             'monthly'     => 'monthly',
             'quarterly'   => 'quarterly',
-            'half_yearly' => 'every 6 months',
+            'half_yearly' => 'bi-annually',
             'yearly'      => 'yearly',
         ];
 

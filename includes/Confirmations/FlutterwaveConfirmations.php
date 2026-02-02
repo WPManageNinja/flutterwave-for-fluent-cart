@@ -253,9 +253,16 @@ class FlutterwaveConfirmations
             $subscriptionData['bill_count'] = $billCount;
 
             if ($order->type == Status::ORDER_TYPE_RENEWAL) {
+                // Reactivation: clear canceled_at and set status to active
+                $reactivationArgs = array_merge($subscriptionData, [
+                    'status'                 => Status::SUBSCRIPTION_ACTIVE,
+                    'canceled_at'            => null,
+                    'current_payment_method' => 'flutterwave',
+                ]);
+
                 SubscriptionService::recordManualRenewal($subscriptionModel, $transactionModel, [
                     'billing_info'      => $billingInfo,
-                    'subscription_args' => $subscriptionData
+                    'subscription_args' => $reactivationArgs
                 ]);
             } else {
                 $oldStatus = $subscriptionModel->status;

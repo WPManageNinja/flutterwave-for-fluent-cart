@@ -52,7 +52,9 @@ class FlutterwaveWebhook
             exit('Invalid JSON payload');
         }
 
-        if (!$this->verifySignature()) {
+        $event = Arr::get($data, 'event', '');
+
+        if (!in_array($event, ['subscription.cancelled']) && !$this->verifySignature()) {
             http_response_code(401);
             exit('Invalid signature / Verification failed');
         }
@@ -96,12 +98,15 @@ class FlutterwaveWebhook
         $secretHash = '';
         if (isset($_SERVER['HTTP_VERIF_HASH'])) {
             $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_VERIF_HASH']));
-        } elseif (isset($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE'])) {
-            $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE']));
         }
 
         if (!$secretHash) {
-            return false;
+            $signature = sanitize_text_field(wp_unslash($_SERVER['HTTP_FLUTTERWAVE_SIGNATURE']));
+            if (!$signature) {
+                return false;
+            }
+
+            return $this->verifySignatureWithSignature($signature, $this->getWebhookPayload());
         }
 
         $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
@@ -121,6 +126,29 @@ class FlutterwaveWebhook
         }
 
         return hash_equals($storedHash, $secretHash);
+    }
+
+    private function verifySignatureWithSignature($signature, $payload)
+    {
+        $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
+    
+        if (!$storedHash) {
+            // If no webhook secret is configured, allow the webhook but log a warning
+            fluent_cart_add_log(
+                __('Flutterwave Webhook Secret Hash Not Configured', 'flutterwave-for-fluent-cart'),
+                'No webhook secret is configured for Flutterwave. Allowing the webhook but it is not recommended.',
+                'warning',
+                [
+                    'module_name' => 'payment',
+                    'module_id'   => 'flutterwave',
+                ]
+            );
+            return true;
+        }
+
+        $expectedSignature = hash_hmac('sha512', $payload, $storedHash);
+
+        return hash_equals($expectedSignature, $signature);
     }
 
     /**
@@ -494,8 +522,30 @@ class FlutterwaveWebhook
             $this->sendResponse(200, 'Subscription not found');
         }
 
-        if (in_array($subscriptionModel->status, [Status::SUBSCRIPTION_CANCELED, Status::SUBSCRIPTION_COMPLETED, Status::SUBSCRIPTION_EXPIRED])) {
-            $this->sendResponse(200, 'Subscription already cancelled/completed');
+        // if (in_array($subscriptionModel->status, [Status::SUBSCRIPTION_CANCELED, Status::SUBSCRIPTION_COMPLETED, Status::SUBSCRIPTION_EXPIRED])) {
+        //     $this->sendResponse(200, 'Subscription already cancelled/completed');
+        // }
+
+        $firstTransactionId = FlutterwaveHelper::getFirstTransactionByVendorChargeId($subscriptionModel->id);
+
+        if (!$firstTransactionId) {
+            $this->sendResponse(200, 'First transaction not found for the subscription');
+        }
+
+        $flutterwaveSubscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', ['transaction_id' => $firstTransactionId]);
+
+        if (is_wp_error($flutterwaveSubscriptions) || !Arr::get($flutterwaveSubscriptions, 'data.0', [])) {
+            $this->sendResponse(200, 'Flutterwave subscription not found');
+        }
+
+        $flutterwaveSubscription = Arr::get($flutterwaveSubscriptions, 'data.0', []);
+
+        if ($flutterwaveSubscription['id'] != $flutterwaveSubscriptionId) {
+            $this->sendResponse(200, 'Flutterwave subscription not found');
+        }
+
+        if ($flutterwaveSubscription['status'] != 'cancelled') {
+            $this->sendResponse(200, 'Flutterwave subscription already cancelled');
         }
 
         $subscriptionModel->update([
@@ -527,11 +577,6 @@ class FlutterwaveWebhook
         }
 
         $txRef = Arr::get($data, 'data.tx_ref');
-
-        // $order = FlutterwaveHelper::getOrderFromTxRef($txRef);
-        // if ($order) {
-        //     return $order;
-        // }
 
         $refType = '';
         $refHash = '';

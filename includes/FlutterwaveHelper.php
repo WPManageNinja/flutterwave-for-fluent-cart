@@ -123,6 +123,19 @@ class FlutterwaveHelper
         return $subscriptionUpdateData;
     }
 
+    public static function getFirstTransactionByVendorChargeId($subscriptionId)
+    {
+        $transaction = OrderTransaction::query()
+            ->where('subscription_id', $subscriptionId)
+            ->where('payment_method', 'flutterwave')
+            ->where('vendor_charge_id', '!=', '')
+            ->where('status', Status::TRANSACTION_SUCCEEDED)
+            ->orderBy('id', 'asc')
+            ->first();
+
+        return $transaction->vendor_charge_id ?? '';
+    }
+
     public static function formatAmountForFlutterwave($amount, $currency)
     {
        

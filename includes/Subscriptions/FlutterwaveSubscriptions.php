@@ -288,16 +288,12 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        // get the vendor charge if of the first transaction
-        $transaction = OrderTransaction::query()
-            ->where('subscription_id', $subscriptionModel->id)
-            ->where('payment_method', 'flutterwave')
-            ->where('vendor_charge_id', '!=', '')
-            ->first();
+        // get the vendor charge of the first transaction
+        $transactionId = FlutterwaveHelper::getFirstTransactionByVendorChargeId($subscriptionModel->id);
 
 
         $updateData = $this->getSubscriptionData($subscriptionModel, [
-            'vendor_transaction_id' => $transaction->vendor_charge_id,
+            'vendor_transaction_id' => $transactionId,
         ]);
 
         $trxRef = 'subscription_' . $subscriptionModel->uuid;

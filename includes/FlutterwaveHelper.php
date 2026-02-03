@@ -136,7 +136,7 @@ class FlutterwaveHelper
             ->orderBy('id', 'asc')
             ->first();
 
-        return $transaction->vendor_charge_id ?? '';
+        return $transaction ? ($transaction->vendor_charge_id ?? '') : '';
     }
 
     public static function formatAmountForFlutterwave($amount, $currency)

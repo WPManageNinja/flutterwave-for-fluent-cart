@@ -169,10 +169,8 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     public function getTransactionUrl($url, $data): string
     {
         $transaction = Arr::get($data, 'transaction', null);
-        $mode = (new Settings\FlutterwaveSettingsBase())->getMode();
-        $baseUrl = $mode === 'live' 
-            ? 'https://app.flutterwave.com/dashboard/transactions/list/' 
-            : 'https://app.flutterwave.com/dashboard/transactions/list/';
+        // Flutterwave uses same dashboard for test/live; use sandbox base if they add one later.
+        $baseUrl = 'https://app.flutterwave.com/dashboard/transactions/list/';
 
         if (!$transaction) {
             return $baseUrl;
@@ -197,10 +195,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     public function getSubscriptionUrl($url, $data): string
     {
         $subscription = Arr::get($data, 'subscription', null);
-        $mode = (new Settings\FlutterwaveSettingsBase())->getMode();
-        $baseUrl = $mode === 'live' 
-            ? 'https://app.flutterwave.com/dashboard/subscriptions/list/' 
-            : 'https://app.flutterwave.com/dashboard/subscriptions/list/';
+        $baseUrl = 'https://app.flutterwave.com/dashboard/subscriptions/list/';
 
         if (!$subscription || !$subscription->vendor_subscription_id) {
             return $baseUrl;

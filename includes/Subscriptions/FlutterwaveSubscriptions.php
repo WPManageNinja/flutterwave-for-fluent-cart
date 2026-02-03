@@ -547,20 +547,33 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        $subscriptionModel->update([
-            'status'      => Status::SUBSCRIPTION_CANCELED,
-            'canceled_at' => DateTime::gmtNow()->format('Y-m-d H:i:s')
-        ]);
+        $status = FlutterwaveHelper::getFctSubscriptionStatus(Arr::get($response, 'status'));
+        if ($subscriptionModel->status == Status::SUBSCRIPTION_COMPLETED) {
+            $status = Status::SUBSCRIPTION_COMPLETED;
+            // log canceled after completed
+            fluent_cart_add_log(
+                __('Flutterwave Subscription Cancelled After Completed', 'flutterwave-for-fluent-cart'),
+                __('Subscription cancelled on Flutterwave after it was completed. ID: ', 'flutterwave-for-fluent-cart') . $vendorSubscriptionId,
+                'info',
+                [
+                    'module_name' => 'order',
+                    'module_id'   => $subscriptionModel->parent_order_id,
+                ]
+            );
 
-        $order = $subscriptionModel->order;
-
+            return [
+                'status'      => $status,
+                'canceled_at' => DateTime::gmtNow()->format('Y-m-d H:i:s')
+            ];
+        }
+        
         fluent_cart_add_log(
             __('Flutterwave Subscription Cancelled', 'flutterwave-for-fluent-cart'),
             __('Subscription cancelled on Flutterwave. ID: ', 'flutterwave-for-fluent-cart') . $vendorSubscriptionId,
             'info',
             [
                 'module_name' => 'order',
-                'module_id'   => $order ? $order->id : null,
+                'module_id'   => $subscriptionModel->parent_order_id,
             ]
         );
 
@@ -575,7 +588,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         );
 
         return [
-            'status'      => Status::SUBSCRIPTION_CANCELED,
+            'status'      => $status,
             'canceled_at' => DateTime::gmtNow()->format('Y-m-d H:i:s')
         ];
     }

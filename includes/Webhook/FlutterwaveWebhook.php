@@ -59,7 +59,7 @@ class FlutterwaveWebhook
 
         $event = Arr::get($data, 'event', '');
 
-        if (!in_array($event, ['subscription.cancelled']) && !$this->verifySignature()) {
+        if (!in_array($event, ['subscription.cancelled']) && !$this->verify($payload)) {
             http_response_code(401);
             exit('Invalid signature / Verification failed'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
         }
@@ -98,8 +98,19 @@ class FlutterwaveWebhook
         return $input;
     }
 
-    private function verifySignature()
+    /**
+     * Verify webhook signature. Uses cached payload so php://input is not read twice.
+     *
+     * @param string $payload Raw request body (from verifyAndProcess).
+     */
+    private function verify($payload = null)
     {
+        if ($payload === null) {
+            if (is_wp_error($payload)) {
+                return false;
+            }
+        }
+
         $secretHash = '';
         if (isset($_SERVER['HTTP_VERIF_HASH'])) {
             $secretHash = sanitize_text_field(wp_unslash($_SERVER['HTTP_VERIF_HASH']));
@@ -114,7 +125,7 @@ class FlutterwaveWebhook
                 return false;
             }
 
-            return $this->verifySignatureWithSignature($signature, $this->getWebhookPayload());
+            return $this->verifySignature($signature, $payload);
         }
 
         $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
@@ -136,7 +147,7 @@ class FlutterwaveWebhook
         return hash_equals($storedHash, $secretHash);
     }
 
-    private function verifySignatureWithSignature($signature, $payload)
+    private function verifySignature($signature, $payload)
     {
         $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
     
@@ -243,6 +254,10 @@ class FlutterwaveWebhook
                     $this->sendResponse(200, 'Transaction not found or not successful for the provided reference.');
                 }
             }    
+        }
+
+        if (!$transactionModel) {
+            $this->sendResponse(200, 'Transaction not found for the provided reference.');
         }
 
         if ($transactionModel->status == Status::TRANSACTION_SUCCEEDED) {

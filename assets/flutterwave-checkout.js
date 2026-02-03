@@ -108,8 +108,6 @@ class FctFlutterwaveHandler {
             // Load Flutterwave script if not loaded
             await this.loadFlutterwaveScript();
 
-            console.log('flutterwaveData', flutterwaveData);
-
             if (intent === 'subscription') {
                 this.openFlutterwavePopup(flutterwaveData, true);
             } else {
@@ -171,7 +169,6 @@ class FctFlutterwaveHandler {
             config.configurations = flutterwaveData.configurations;
         }
 
-        console.log('config', config);
         try {
             // FlutterwaveCheckout returns an object with close() method
             this.#flwCheckout = window.FlutterwaveCheckout(config);

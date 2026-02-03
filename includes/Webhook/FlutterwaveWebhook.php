@@ -45,6 +45,12 @@ class FlutterwaveWebhook
     {
         $payload = $this->getWebhookPayload();
 
+        // only for dev
+        error_log(print_r($payload, true));
+        error_log('--------------------------------');
+        error_log(print_r($_SERVER, true));
+        error_log('--------------------------------');
+
         if (is_wp_error($payload)) {
             http_response_code(400);
             exit('Not valid payload'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response

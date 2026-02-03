@@ -195,13 +195,13 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     public function getSubscriptionUrl($url, $data): string
     {
         $subscription = Arr::get($data, 'subscription', null);
-        $baseUrl = 'https://app.flutterwave.com/dashboard/subscriptions/list/';
+        $baseUrl = 'https://app.flutterwave.com/dashboard/payments/plans/details/';
 
-        if (!$subscription || !$subscription->vendor_subscription_id) {
+        if (!$subscription || !$subscription->vendor_plan_id) {
             return $baseUrl;
         }
 
-        return $baseUrl . $subscription->vendor_subscription_id;
+        return $baseUrl . $subscription->vendor_plan_id;
     }
 
     public function processRefund($transaction, $amount, $args)

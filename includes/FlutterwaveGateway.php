@@ -219,7 +219,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     public function getWebhookInstructions(): string
     {
         $webhook_url = site_url('?fluent-cart=fct_payment_listener_ipn&method=flutterwave');
-        $configureLink = 'https://dashboard.flutterwave.com/settings/webhooks';
+        $configureLink = 'https://app.flutterwave.com/dashboard/settings/webhooks/live';
 
         // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped below with esc_html and esc_url
         return sprintf(

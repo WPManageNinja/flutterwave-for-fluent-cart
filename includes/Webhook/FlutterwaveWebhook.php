@@ -337,8 +337,12 @@ class FlutterwaveWebhook
             'current_payment_method' => 'flutterwave',
         ];
         $nextDue = Arr::get($flutterwaveTransaction, 'next_due');
+        error_log('nextDue: ' . $nextDue);
+        
         if ($nextDue) {
             $subscriptionUpdateData['next_billing_date'] = DateTime::anyTimeToGmt($nextDue)->format('Y-m-d H:i:s');
+        } else {
+            $subscriptionUpdateData['next_billing_date'] = FlutterwaveHelper::calculateNextBillingDate($subscriptionModel);
         }
 
         $result = SubscriptionService::recordRenewalPayment($transactionData, $subscriptionModel, $subscriptionUpdateData);

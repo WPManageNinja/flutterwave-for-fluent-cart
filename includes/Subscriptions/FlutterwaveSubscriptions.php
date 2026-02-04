@@ -216,7 +216,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
     public function getSubscriptionData($subscriptionModel, $args = [])
     {
         $flutterwaveTransaction = Arr::get($args, 'flutterwave_transaction', []);
-        $nextBillingDate = $this->calculateNextBillingDate($subscriptionModel);
+        $nextBillingDate = FlutterwaveHelper::calculateNextBillingDate($subscriptionModel);
      
         $flutterwaveSubscription = null;
 
@@ -241,6 +241,9 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         if ($subscriptionModel->vendor_plan_id) {
             // get subscriptions by 'transaction_id', transaction id is the first transaction id created during subscription creation
             $flutterwaveSubscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', ['transaction_id' => $vendorTransactionId]);
+            if (is_wp_error($flutterwaveSubscriptions)) {
+                return $flutterwaveSubscriptions;
+            }
             $flutterwaveSubscription = Arr::get($flutterwaveSubscriptions, 'data.0', []);
             if ($flutterwaveSubscription) {
                 $vendorSubscriptionId = Arr::get($flutterwaveSubscription, 'id');
@@ -271,48 +274,6 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         }
 
         return $updateData;
-    }
-
-    private function calculateNextBillingDate($subscriptionModel)
-    {
-        $interval = $subscriptionModel->billing_interval;
-        $trialDays = $subscriptionModel->trial_days;
-
-        $currentNextBillingDate = $subscriptionModel->next_billing_date;
-
-        if ($currentNextBillingDate) {
-            $now = DateTime::anyTimeToGmt($currentNextBillingDate);
-        } else {
-            $now = DateTime::gmtNow();
-            if ($trialDays > 0) {
-                $now->addDays($trialDays);
-            }
-        }
-       
-        switch ($interval) {
-            case 'daily':
-                $now->addDay();
-                break;
-            case 'weekly':
-                $now->addWeek();
-                break;
-            case 'monthly':
-                $now->addMonth();
-                break;
-            case 'quarterly':
-                $now->addMonths(3);
-                break;
-            case 'half_yearly':
-                $now->addMonths(6);
-                break;
-            case 'yearly':
-                $now->addYear();
-                break;
-            default:
-                $now->addMonth();
-        }
-
-        return $now->format('Y-m-d H:i:s');
     }
 
     /**
@@ -381,6 +342,10 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         }
 
         $updateData = $this->getSubscriptionData($subscriptionModel);
+
+        if (is_wp_error($updateData)) {
+            return $updateData;
+        }
 
         $trxRef = 'subscription_' . $subscriptionModel->uuid;
 

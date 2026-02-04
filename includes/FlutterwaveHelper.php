@@ -126,6 +126,48 @@ class FlutterwaveHelper
         return $subscriptionUpdateData;
     }
 
+    public static function calculateNextBillingDate($subscriptionModel)
+    {
+        $interval = $subscriptionModel->billing_interval;
+        $trialDays = $subscriptionModel->trial_days;
+
+        $currentNextBillingDate = $subscriptionModel->next_billing_date;
+
+        if ($currentNextBillingDate) {
+            $now = DateTime::anyTimeToGmt($currentNextBillingDate);
+        } else {
+            $now = DateTime::gmtNow();
+            if ($trialDays > 0) {
+                $now->addDays($trialDays);
+            }
+        }
+       
+        switch ($interval) {
+            case 'daily':
+                $now->addDay();
+                break;
+            case 'weekly':
+                $now->addWeek();
+                break;
+            case 'monthly':
+                $now->addMonth();
+                break;
+            case 'quarterly':
+                $now->addMonths(3);
+                break;
+            case 'half_yearly':
+                $now->addMonths(6);
+                break;
+            case 'yearly':
+                $now->addYear();
+                break;
+            default:
+                $now->addMonth();
+        }
+
+        return $now->format('Y-m-d H:i:s');
+    }
+
     public static function getFirstTransactionByVendorChargeId($subscriptionId)
     {
         $transaction = OrderTransaction::query()

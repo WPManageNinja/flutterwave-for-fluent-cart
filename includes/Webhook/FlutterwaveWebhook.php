@@ -8,6 +8,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 use FluentCart\App\Helpers\Status;
+use FluentCart\App\Helpers\StatusHelper;
 use FluentCart\App\Models\Order;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
@@ -261,6 +262,7 @@ class FlutterwaveWebhook
         }
 
         if ($transactionModel->status == Status::TRANSACTION_SUCCEEDED) {
+            (new StatusHelper($transactionModel->order))->syncOrderStatuses($transactionModel);
             $this->sendResponse(200, 'Transaction already processed.');
         }
 
@@ -336,13 +338,18 @@ class FlutterwaveWebhook
         $subscriptionUpdateData = [
             'current_payment_method' => 'flutterwave',
         ];
+
+        $nextBillingDate = null;
         $nextDue = Arr::get($flutterwaveTransaction, 'next_due');
-        error_log('nextDue: ' . $nextDue);
-        
         if ($nextDue) {
-            $subscriptionUpdateData['next_billing_date'] = DateTime::anyTimeToGmt($nextDue)->format('Y-m-d H:i:s');
+            $nextBillingDate =  DateTime::anyTimeToGmt($nextDue)->format('Y-m-d H:i:s');
         } else {
-            $subscriptionUpdateData['next_billing_date'] = FlutterwaveHelper::calculateNextBillingDate($subscriptionModel);
+            $nextBillingDate = FlutterwaveHelper::calculateNextBillingDate($subscriptionModel);
+        }
+
+        
+        if ($nextBillingDate) {
+            $subscriptionUpdateData['next_billing_date'] = $nextBillingDate;
         }
 
         $result = SubscriptionService::recordRenewalPayment($transactionData, $subscriptionModel, $subscriptionUpdateData);

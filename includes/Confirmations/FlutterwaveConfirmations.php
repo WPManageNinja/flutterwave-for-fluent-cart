@@ -122,6 +122,7 @@ class FlutterwaveConfirmations
 
         // Check if already processed
         if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
+            (new StatusHelper($transactionModel->order))->syncOrderStatuses($transactionModel);
             wp_send_json([
                 'redirect_url' => $transactionModel->getReceiptPageUrl(),
                 'order' => [
@@ -188,6 +189,7 @@ class FlutterwaveConfirmations
         $billingInfo = Arr::get($args, 'billing_info', []);
 
         if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
+            (new StatusHelper($transactionModel->order))->syncOrderStatuses($transactionModel);
             return null;
         }
 

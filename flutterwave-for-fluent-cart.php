@@ -84,6 +84,39 @@ add_action('plugins_loaded', function() {
         \FlutterwaveFluentCart\FlutterwaveGateway::register();
     }, 10);
 
+    /**
+     * Plugin Updater
+     */
+    $apiUrl = 'https://fluentcart.com/wp-admin/admin-ajax.php?action=fluent_cart_addon_update&time=' . time();
+    new \FlutterwaveFluentCart\PluginManager\Updater($apiUrl, FLUTTERWAVE_FCT_PLUGIN_FILE, array(
+        'version'   => FLUTTERWAVE_FCT_VERSION,
+        'license'   => '',
+        'item_name' => 'Flutterwave for FluentCart',
+        'item_id'   => 'flutterwave-for-fluent-cart',
+        'author'    => 'wpmanageninja'
+    ),
+        array(
+            'license_status' => 'valid',
+            'admin_page_url' => admin_url('admin.php?page=fluent-cart#/'),
+            'purchase_url'   => 'https://fluentcart.com',
+            'plugin_title'   => 'Flutterwave for FluentCart'
+        )
+    );
+
+    add_filter('plugin_row_meta', function ($links, $pluginFile) {
+        if (plugin_basename(FLUTTERWAVE_FCT_PLUGIN_FILE) !== $pluginFile) {
+            return $links;
+        }
+
+        $checkUpdateUrl = esc_url(admin_url('plugins.php?flutterwave-for-fluent-cart-check-update=' . time()));
+
+        $row_meta = array(
+            'check_update' => '<a style="color: #583fad;font-weight: 600;" href="' . $checkUpdateUrl . '" aria-label="' . esc_attr__('Check Update', 'flutterwave-for-fluent-cart') . '">' . esc_html__('Check Update', 'flutterwave-for-fluent-cart') . '</a>',
+        );
+
+        return array_merge($links, $row_meta);
+    }, 10, 2);
+
 }, 20);
 
 

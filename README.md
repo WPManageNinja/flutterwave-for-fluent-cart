@@ -1,5 +1,7 @@
 # Flutterwave for FluentCart
 
+[![Download Latest](https://img.shields.io/badge/Download-Latest-blue?style=for-the-badge&logo=github)](https://github.com/WPManageNinja/flutterwave-for-fluent-cart/releases/latest/download/flutterwave-for-fluent-cart.zip)
+
 Accept payments via Flutterwave in FluentCart - supports one-time payments, subscriptions, and automatic refunds via webhooks.
 
 ## Description

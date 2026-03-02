@@ -226,6 +226,12 @@ class FlutterwaveGateway extends AbstractPaymentGateway
             '<div>
                 <p><b>%s</b><code class="copyable-content">%s</code></p>
                 <p>%s</p>
+                <p class="fc_simple_notice" style="margin-top: 15px;"><b>%s</b> %s</p>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li>%s</li>
+                    <li>%s</li>
+                    <li>%s</li>
+                </ul>
             </div>',
             esc_html__('Webhook URL: ', 'flutterwave-for-fluent-cart'),
             esc_html($webhook_url),
@@ -242,7 +248,12 @@ class FlutterwaveGateway extends AbstractPaymentGateway
                         'target' => [],
                     ],
                 ]
-            )
+            ),
+            esc_html__('Important: Server Configuration Required', 'flutterwave-for-fluent-cart'),
+            esc_html__('To ensure webhooks are delivered successfully, you may need to whitelist Flutterwave on your server.', 'flutterwave-for-fluent-cart'),
+            esc_html__('Ensure your server firewall or security plugins allow incoming requests from Flutterwave', 'flutterwave-for-fluent-cart'),
+            esc_html__('If using a WAF (Web Application Firewall) or security plugin, whitelist Flutterwave\'s webhook domain', 'flutterwave-for-fluent-cart'),
+            esc_html__('Check your server error logs if webhooks are failing to reach your site', 'flutterwave-for-fluent-cart')
         );
     }
 

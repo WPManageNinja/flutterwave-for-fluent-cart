@@ -60,7 +60,7 @@ class FlutterwaveWebhook
 
         $event = Arr::get($data, 'event', '');
 
-        if (!in_array($event, ['subscription.cancelled']) && !$this->verify($payload)) {
+        if (!$this->verify($payload)) {
             http_response_code(401);
             exit('Invalid signature / Verification failed'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
         }
@@ -142,7 +142,7 @@ class FlutterwaveWebhook
                     'module_id'   => 'flutterwave',
                 ]
             );
-            return true;
+            return false;
         }
 
         return hash_equals($storedHash, $secretHash);

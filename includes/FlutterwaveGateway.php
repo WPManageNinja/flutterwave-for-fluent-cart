@@ -326,11 +326,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     {
         $mode = Arr::get($data, 'payment_mode', 'test');
 
-        if ($mode == 'test') {
-            $data['test_secret_key'] = Helper::encryptKey($data['test_secret_key']);
-        } else {
-            $data['live_secret_key'] = Helper::encryptKey($data['live_secret_key']);
-        }
+        $data[$mode . '_secret_key'] = Helper::encryptKey(Arr::get($data, $mode . '_secret_key'));
 
         return $data;
     }

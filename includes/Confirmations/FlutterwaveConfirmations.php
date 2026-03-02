@@ -309,8 +309,12 @@ class FlutterwaveConfirmations
     private function isFlutterwaveBindingValid(OrderTransaction $transaction, Order $order, $flutterWaveData): bool
     {
         $meta = Arr::get($flutterWaveData, 'meta', []);
-        $flwOrderHash = Arr::get($meta, 'order_hash');
-        $flwTransactionHash = Arr::get($meta, 'transaction_hash');
+        $flwOrderHash = Arr::get($meta, 'order_hash', null);
+        $flwTransactionHash = Arr::get($meta, 'transaction_hash', null);
+
+        if (!$flwOrderHash && !$flwTransactionHash) {
+            return false;
+        }
 
         if ($flwOrderHash && $flwOrderHash !== $order->uuid) {
             return false;

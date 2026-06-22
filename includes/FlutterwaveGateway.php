@@ -216,45 +216,43 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         return (new FlutterwaveRefund())->processRemoteRefund($transaction, $amount, $args);
     }
 
-    public function getWebhookInstructions(): string
+    public function getWebhookInstructions(): array
     {
         $webhook_url = site_url('?fluent-cart=fct_payment_listener_ipn&method=flutterwave');
         $configureLink = 'https://app.flutterwave.com/dashboard/settings/webhooks/live';
 
-        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped below with esc_html and esc_url
-        return sprintf(
-            '<div>
-                <p><b>%s</b><code class="copyable-content">%s</code></p>
-                <p>%s</p>
-                <p class="fc_simple_notice" style="margin-top: 15px;"><b>%s</b> %s</p>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>%s</li>
-                    <li>%s</li>
-                    <li>%s</li>
-                </ul>
-            </div>',
-            esc_html__('Webhook URL: ', 'flutterwave-for-fluent-cart'),
-            esc_html($webhook_url),
-            wp_kses(
-                sprintf(
-                    /* translators: %1$s: URL to Flutterwave webhook settings, %2$s: Link text */
-                    __('Configure this webhook URL in your Flutterwave Dashboard under Settings > Webhooks. You can access the <a href="%1$s" target="_blank">%2$s</a> here.', 'flutterwave-for-fluent-cart'),
-                    esc_url($configureLink),
-                    esc_html__('Flutterwave Webhook Settings Page', 'flutterwave-for-fluent-cart')
-                ),
-                [
-                    'a' => [
-                        'href'   => [],
-                        'target' => [],
-                    ],
-                ]
-            ),
-            esc_html__('Important: Server Configuration Required', 'flutterwave-for-fluent-cart'),
-            esc_html__('To ensure webhooks are delivered successfully, you may need to whitelist Flutterwave on your server.', 'flutterwave-for-fluent-cart'),
-            esc_html__('Ensure your server firewall or security plugins allow incoming requests from Flutterwave', 'flutterwave-for-fluent-cart'),
-            esc_html__('If using a WAF (Web Application Firewall) or security plugin, whitelist Flutterwave\'s webhook domain', 'flutterwave-for-fluent-cart'),
-            esc_html__('Check your server error logs if webhooks are failing to reach your site', 'flutterwave-for-fluent-cart')
+        $svg    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6V8H5V19H16V14H18V20C18 20.5523 17.5523 21 17 21H4C3.44772 21 3 20.5523 3 20V7C3 6.44772 3.44772 6 4 6H10ZM21 3V11H19L18.9999 6.413L11.2071 14.2071L9.79289 12.7929L17.5849 5H13V3H21Z"></path></svg>';
+
+        /* translators: %1$s: "Flutterwave Webhook Settings Page " link with icon */
+        $step = fn($url) => \sprintf(
+            '<p>%s</p>',
+            \sprintf(
+                __('Click %1$s', 'flutterwave-for-fluent-cart'),
+                \sprintf('<a href="%s" target="_blank">%s %s</a>', $url, __('Flutterwave Webhook Settings Page ', 'flutterwave-for-fluent-cart'), $svg)
+            )
         );
+
+        return [
+            'title'       => __('Webhook URL', 'flutterwave-for-fluent-cart'),
+            'webhook_url' => esc_html($webhook_url),
+            'description' => __('You should configure your webhook URL in your Flutterwave Dashboard.', 'flutterwave-for-fluent-cart'),
+            'steps'       => [
+                'title' => __('How to configure?', 'flutterwave-for-fluent-cart'),
+                'list'  => [
+                    __('In your Flutterwave Dashboard under Settings &rarr; Webhooks', 'flutterwave-for-fluent-cart'),
+                    $step(esc_url($configureLink)),
+                ],
+            ],
+            'webhook_notice' => [
+                'title' => __('Important: Server Configuration Required', 'flutterwave-for-fluent-cart'),
+                'description'  => __('To ensure webhooks are delivered successfully, you may need to whitelist Flutterwave on your server.', 'flutterwave-for-fluent-cart'),
+                'list' => [
+                    __('Ensure your server firewall or security plugins allow incoming requests from Flutterwave', 'flutterwave-for-fluent-cart'),
+                    __("If using a WAF (Web Application Firewall) or security plugin, whitelist Flutterwave's webhook domain", 'flutterwave-for-fluent-cart'),
+                    __("Check your server error logs if webhooks are failing to reach your site", 'flutterwave-for-fluent-cart'),
+                ]
+            ]
+        ];
     }
 
     public function fields(): array

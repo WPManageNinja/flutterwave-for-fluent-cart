@@ -52,6 +52,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
     public function meta(): array
     {
         $logo = FLUTTERWAVE_FCT_PLUGIN_URL . 'assets/images/flutterwave-logo.svg';
+        $logoLight = FLUTTERWAVE_FCT_PLUGIN_URL . 'assets/images/flutterwave-logo-light.svg';
 
         $addonStatus = PaymentAddonManager::getAddonStatus($this->addonSlug, $this->addonFile);
 
@@ -63,6 +64,7 @@ class FlutterwaveGateway extends AbstractPaymentGateway
             'admin_title'        => 'Flutterwave',
             'description'        => __('Pay securely with Flutterwave - Card, Bank Transfer, Mobile Money, and more', 'flutterwave-for-fluent-cart'),
             'logo'               => $logo,
+            'logo_light'         => $logoLight,
             'icon'               => $logo,
             'brand_color'        => '#F5A623',
             'tag'                => 'beta',

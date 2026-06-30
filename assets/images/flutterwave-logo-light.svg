@@ -1,6 +1,6 @@
 <svg version="1.1" id="Layer_1" xmlns:x="ns_extend;" xmlns:i="ns_ai;" xmlns:graph="ns_graphs;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 916.7 144.7" style="enable-background:new 0 0 916.7 144.7;" xml:space="preserve">
  <style type="text/css">
-  .st0{fill:#2A3362;}
+  .st0{fill:#FFFFFF;}
 	.st1{fill:#009A46;}
 	.st2{fill:#FF5805;}
 	.st3{fill:#F5AFCB;}
@@ -10,7 +10,7 @@
   <sfw xmlns="ns_sfw;">
    <slices>
    </slices>
-   <sliceSourceBounds bottomLeftOrigin="true" height="144.7" width="916.7" x="-258.1" y="-272.6">
+   <sliceSourceBounds bottomLeftOrigin="true" height="144.7" width="916.7" x="-258.1" y="-80.9">
    </sliceSourceBounds>
   </sfw>
  </metadata>

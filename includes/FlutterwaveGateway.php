@@ -33,7 +33,8 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         'payment',
         'refund',
         'webhook',
-        'subscriptions'
+        'subscriptions',
+        'manual_subscription'
     ];
 
     public function __construct()
@@ -100,6 +101,10 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         ];
 
         if ($paymentInstance->subscription) {
+            if ($this->shouldChargeSubscriptionAsOneTime($paymentInstance)) {
+                return (new Onetime\FlutterwaveProcessor())->handleSinglePayment($paymentInstance, $paymentArgs);
+            }
+
             return (new Subscriptions\FlutterwaveSubscriptions())->handleSubscription($paymentInstance, $paymentArgs);
         }
 

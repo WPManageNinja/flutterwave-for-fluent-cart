@@ -10,6 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Models\Subscription;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractSubscriptionModule;
+use FluentCart\App\Modules\Subscriptions\Services\SubscriptionManagementMode;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;
@@ -238,7 +239,10 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             );
         }
 
-        if ($subscriptionModel->vendor_plan_id) {
+        // Store-billed (manual/system) subscriptions are charged as plain payments —
+        // never look up or attach a Flutterwave subscription to them, or the vendor
+        // schedule would bill alongside the renewals FluentCart generates.
+        if ($subscriptionModel->vendor_plan_id && !self::isStoreBilled($subscriptionModel)) {
             // get subscriptions by 'transaction_id', transaction id is the first transaction id created during subscription creation
             $flutterwaveSubscriptions = FlutterwaveAPI::getFlutterwaveObject('subscriptions', ['transaction_id' => $vendorTransactionId]);
             if (is_wp_error($flutterwaveSubscriptions)) {
@@ -497,5 +501,23 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             'status'      => $status,
             'canceled_at' => DateTime::gmtNow()->format('Y-m-d H:i:s')
         ];
+    }
+
+    /**
+     * Mirrors AbstractPaymentGateway::shouldChargeSubscriptionAsOneTime — the
+     * charge-time guard can't cover the confirmation/webhook path.
+     */
+    private static function isStoreBilled($subscriptionModel): bool
+    {
+        if (!$subscriptionModel || !in_array($subscriptionModel->collection_method, ['manual', 'system'], true)) {
+            return false;
+        }
+
+        if (!class_exists(SubscriptionManagementMode::class)) {
+            return false;
+        }
+
+        return SubscriptionManagementMode::isSubscriptionStoreManaged($subscriptionModel)
+            || SubscriptionManagementMode::isStoreManaged();
     }
 }

@@ -124,7 +124,7 @@ class FlutterwaveConfirmations
         if ($transactionModel->status === Status::TRANSACTION_SUCCEEDED) {
             (new StatusHelper($transactionModel->order))->syncOrderStatuses($transactionModel);
             wp_send_json([
-                'redirect_url' => $transactionModel->getReceiptPageUrl(),
+                'redirect_url' => method_exists($transactionModel, 'getSuccessUrl') ? $transactionModel->getSuccessUrl() : $transactionModel->getReceiptPageUrl(),
                 'order' => [
                     'uuid' => $transactionModel->order->uuid,
                 ],
@@ -165,7 +165,7 @@ class FlutterwaveConfirmations
         ]);
 
         wp_send_json([
-            'redirect_url' => $transactionModel->getReceiptPageUrl(),
+            'redirect_url' => method_exists($transactionModel, 'getSuccessUrl') ? $transactionModel->getSuccessUrl() : $transactionModel->getReceiptPageUrl(),
             'order' => [
                 'uuid' => $transactionModel->order->uuid,
             ],

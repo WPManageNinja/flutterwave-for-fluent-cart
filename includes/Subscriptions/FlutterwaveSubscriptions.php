@@ -427,7 +427,12 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                 }
 
                 SubscriptionService::recordRenewalPayment($transactionData, $subscriptionModel, $updateData);
-               
+
+            } elseif ($settledAt && empty($transaction->meta['settled_at'])) {
+                $transaction->meta = array_merge($transaction->meta ?? [], [
+                    'settled_at' => $settledAt
+                ]);
+                $transaction->save();
             }
 
         }

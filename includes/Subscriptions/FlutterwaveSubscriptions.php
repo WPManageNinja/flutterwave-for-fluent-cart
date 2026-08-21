@@ -377,7 +377,7 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             // Flutterwave's created_at is when the remote charge happened; that
             // is the settlement moment, not this resync's run time. The listing
             // returns all statuses, so only a successful charge counts as settled.
-            $chargedAt = Arr::get($flutterwaveTransaction, 'status') === 'successful'
+            $chargedAt = in_array(Arr::get($flutterwaveTransaction, 'status'), ['successful', 'succeeded'], true)
                 ? Arr::get($flutterwaveTransaction, 'created_at')
                 : null;
             $settledAt = $chargedAt ? DateTime::anyTimeToGmt($chargedAt)->format('Y-m-d H:i:s') : null;

@@ -374,6 +374,11 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
         } while ($hasMore);
 
         foreach ($flutterwaveTransactions as $flutterwaveTransaction) {
+            // Flutterwave's created_at is when the remote charge happened; that
+            // is the settlement moment, not this resync's run time.
+            $chargedAt = Arr::get($flutterwaveTransaction, 'created_at');
+            $settledAt = $chargedAt ? DateTime::anyTimeToGmt($chargedAt)->format('Y-m-d H:i:s') : null;
+
             $transaction = OrderTransaction::query()
                 ->where('subscription_id', $subscriptionModel->id)
                 ->where('payment_method', 'flutterwave')
@@ -389,6 +394,12 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                 ->first();
 
                 if ($transaction) {
+                    if ($settledAt && empty($transaction->meta['settled_at'])) {
+                        $transaction->meta = array_merge($transaction->meta ?? [], [
+                            'settled_at' => $settledAt
+                        ]);
+                    }
+
                     $transaction->update([
                         'vendor_charge_id' => $flutterwaveTransaction['id'],
                         'status'           => Status::TRANSACTION_SUCCEEDED,
@@ -410,7 +421,11 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                     'status'           => Status::TRANSACTION_SUCCEEDED,
                     'total'            => FlutterwaveHelper::convertToLowestUnit($flutterwaveTransaction['amount'], $flutterwaveTransaction['currency']),
                 ];
-                
+
+                if ($settledAt) {
+                    $transactionData['meta'] = ['settled_at' => $settledAt];
+                }
+
                 SubscriptionService::recordRenewalPayment($transactionData, $subscriptionModel, $updateData);
                
             }

@@ -335,6 +335,13 @@ class FlutterwaveWebhook
             ]
         ];
 
+        // Flutterwave's created_at is when the remote charge happened; that is
+        // the settlement moment, not this webhook's processing time.
+        $chargedAt = Arr::get($flutterwaveTransaction, 'created_at');
+        if ($chargedAt) {
+            $transactionData['meta']['settled_at'] = DateTime::anyTimeToGmt($chargedAt)->format('Y-m-d H:i:s');
+        }
+
         $subscriptionUpdateData = [
             'current_payment_method' => 'flutterwave',
         ];

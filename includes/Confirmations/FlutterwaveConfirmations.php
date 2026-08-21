@@ -14,6 +14,7 @@ use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
 use FluentCart\App\Events\Subscription\SubscriptionActivated;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
+use FluentCart\App\Services\DateTime\DateTime;
 use FluentCart\Framework\Support\Arr;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\FlutterwaveHelper;
@@ -215,6 +216,15 @@ class FlutterwaveConfirmations
             'flw_ref' => $flwRef,
             'tx_ref'  => $txRef,
         ]);
+
+        // Flutterwave's created_at is when the remote charge happened. When this
+        // confirmation is the first path to mark the transaction succeeded, it
+        // beats the model hook's fallback now() stamp — which for a delayed
+        // webhook would be the (later) processing time, not the charge time.
+        $chargedAt = Arr::get($transactionData, 'created_at');
+        if ($chargedAt && empty($metaData['settled_at'])) {
+            $metaData['settled_at'] = DateTime::anyTimeToGmt($chargedAt)->format('Y-m-d H:i:s');
+        }
 
         $transactionUpdateData = array_filter([
             'order_id' => $order->id,

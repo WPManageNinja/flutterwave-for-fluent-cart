@@ -3,13 +3,13 @@
  * Plugin Name: Flutterwave for FluentCart
  * Plugin URI: https://fluentcart.com
  * Description: Accept payments via Flutterwave in FluentCart - supports one-time payments, subscriptions, and automatic refunds via webhooks.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: FluentCart
  * Author URI: https://fluentcart.com
  * Text Domain: flutterwave-for-fluent-cart
  * Domain Path: /languages
  * Requires at least: 5.6
- * Tested up to: 7.0
+ * Tested up to: 7.1
  * Requires PHP: 7.4
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -19,7 +19,7 @@
 defined('ABSPATH') || exit('Direct access not allowed.');
 
 // Define plugin constants
-define('FLUTTERWAVE_FCT_VERSION', '1.0.1');
+define('FLUTTERWAVE_FCT_VERSION', '1.0.2');
 define('FLUTTERWAVE_FCT_PLUGIN_FILE', __FILE__);
 define('FLUTTERWAVE_FCT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('FLUTTERWAVE_FCT_PLUGIN_URL', plugin_dir_url(__FILE__));

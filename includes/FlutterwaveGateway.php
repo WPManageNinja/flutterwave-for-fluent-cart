@@ -34,7 +34,8 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         'refund',
         'webhook',
         'subscriptions',
-        'manual_subscription'
+        'manual_subscription',
+        'multi_currency',
     ];
 
     public function __construct()
@@ -95,6 +96,13 @@ class FlutterwaveGateway extends AbstractPaymentGateway
 
     public function makePaymentFromPaymentInstance(PaymentInstance $paymentInstance)
     {
+        if (!in_array(strtoupper($paymentInstance->transaction->currency), FlutterwaveHelper::getFlutterwaveSupportedCurrencies(), true)) {
+            return new \WP_Error(
+                'flutterwave_unsupported_currency',
+                __('Flutterwave does not support the currency you are using!', 'flutterwave-for-fluent-cart')
+            );
+        }
+
         $paymentArgs = [
             'success_url' => $this->getSuccessUrl($paymentInstance->transaction),
             'cancel_url'  => $this->getCancelUrl(),

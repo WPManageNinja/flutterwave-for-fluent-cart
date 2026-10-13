@@ -83,6 +83,48 @@ class FlutterwaveHelper
         return self::getOrderFromTransactionHash($transactionHash);
     }
 
+    /**
+     * The verified charge must be in the transaction's currency and cover its total;
+     * the inline checkout amount comes from the browser and can be altered.
+     *
+     * @param array $charge Verified Flutterwave transaction data
+     * @param OrderTransaction $transaction
+     * @return true|\WP_Error
+     */
+    public static function validateChargeCoversTransaction(array $charge, OrderTransaction $transaction)
+    {
+        $paidCurrency = strtoupper((string) Arr::get($charge, 'currency'));
+        $paidAmount = self::convertToLowestUnit(Arr::get($charge, 'amount', 0), $paidCurrency);
+        $expectedCurrency = strtoupper($transaction->currency);
+
+        if ($paidCurrency === $expectedCurrency && $paidAmount >= (int) $transaction->total) {
+            return true;
+        }
+
+        fluent_cart_add_log(
+            __('Flutterwave Payment Mismatch', 'flutterwave-for-fluent-cart'),
+            sprintf(
+                /* translators: 1: Flutterwave transaction ID, 2: paid amount, 3: paid currency, 4: expected amount, 5: expected currency */
+                __('Flutterwave transaction %1$s paid %2$s %3$s, expected %4$s %5$s. The payment was not confirmed.', 'flutterwave-for-fluent-cart'),
+                Arr::get($charge, 'id'),
+                $paidAmount / 100,
+                $paidCurrency,
+                $transaction->total / 100,
+                $expectedCurrency
+            ),
+            'error',
+            [
+                'module_name' => 'order',
+                'module_id'   => $transaction->order_id,
+            ]
+        );
+
+        return new \WP_Error(
+            'flutterwave_payment_mismatch',
+            __('The payment does not match the order total.', 'flutterwave-for-fluent-cart')
+        );
+    }
+
     public static function checkCurrencySupport()
     {
         $currency = CurrencySettings::get('currency');
@@ -189,6 +231,6 @@ class FlutterwaveHelper
 
     public static function convertToLowestUnit($amount, $currency)
     { 
-        return (int) ($amount * 100);
+        return (int) round($amount * 100);
     }
 }

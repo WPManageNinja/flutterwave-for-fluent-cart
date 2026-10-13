@@ -2,3 +2,8 @@ vendor/
 node_modules/
 .DS_Store
 *.log
+
+# Tests
+tests/.env
+tests/_output/
+tests/Support/_generated/

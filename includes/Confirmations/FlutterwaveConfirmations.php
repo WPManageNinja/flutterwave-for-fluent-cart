@@ -158,12 +158,19 @@ class FlutterwaveConfirmations
             ]);
         }
 
-        $this->confirmPaymentSuccessByCharge($transactionModel, [
+        $confirmed = $this->confirmPaymentSuccessByCharge($transactionModel, [
             'vendor_charge_id' => $flutterWaveTransactionId,
             'charge' => $flutterWaveTransactionData,
             'subscription_data' => $subscriptionData,
             'billing_info' => $billingInfo
         ]);
+
+        if (is_wp_error($confirmed)) {
+            wp_send_json([
+                'message' => $confirmed->get_error_message(),
+                'status' => 'failed'
+            ], 400);
+        }
 
         wp_send_json([
             'redirect_url' => method_exists($transactionModel, 'getSuccessUrl') ? $transactionModel->getSuccessUrl() : $transactionModel->getReceiptPageUrl(),
@@ -180,7 +187,7 @@ class FlutterwaveConfirmations
      *
      * @param OrderTransaction $transactionModel
      * @param array $args
-     * @return Order|null
+     * @return Order|\WP_Error|null
    */
     public function confirmPaymentSuccessByCharge(OrderTransaction $transactionModel, $args = [])
     {
@@ -200,13 +207,10 @@ class FlutterwaveConfirmations
             return null;
         }
 
-
-        $amount = FlutterwaveHelper::convertToLowestUnit(
-            Arr::get($transactionData, 'amount', 0),
-            Arr::get($transactionData, 'currency')
-        );
-
-        $currency = Arr::get($transactionData, 'currency');
+        $chargeCheck = FlutterwaveHelper::validateChargeCoversTransaction($transactionData, $transactionModel);
+        if (is_wp_error($chargeCheck)) {
+            return $chargeCheck;
+        }
 
         // Store flw_ref for future refund matching via webhook
         $flwRef = Arr::get($transactionData, 'flw_ref', '');
@@ -228,8 +232,6 @@ class FlutterwaveConfirmations
 
         $transactionUpdateData = array_filter([
             'order_id' => $order->id,
-            'total' => $amount,
-            'currency' => $currency,
             'status' => Status::TRANSACTION_SUCCEEDED,
             'payment_method' => 'flutterwave',
             'card_last_4' => Arr::get($billingInfo, 'last4', ''),

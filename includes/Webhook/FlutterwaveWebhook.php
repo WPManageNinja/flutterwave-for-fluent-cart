@@ -323,6 +323,13 @@ class FlutterwaveWebhook
             return null;
         }
 
+        // recordRenewalPayment() settles a pending renewal invoice (e.g. a reactivation
+        // checkout) with this charge, so the charge must cover that invoice.
+        $pendingInvoiceTransaction = $this->getPendingRenewalInvoiceTransaction($subscriptionModel);
+        if ($pendingInvoiceTransaction && is_wp_error(FlutterwaveHelper::validateChargeCoversTransaction($flutterwaveTransaction, $pendingInvoiceTransaction))) {
+            return null;
+        }
+
         $transactionData = [
             'payment_method'      => 'flutterwave',
             'total'               => $amount,
@@ -370,6 +377,25 @@ class FlutterwaveWebhook
             return null;
         }
         return $result;
+    }
+
+    private function getPendingRenewalInvoiceTransaction(Subscription $subscriptionModel)
+    {
+        $invoice = Order::query()
+            ->where('parent_id', $subscriptionModel->parent_order_id)
+            ->where('type', Status::ORDER_TYPE_RENEWAL)
+            ->whereIn('payment_status', [Status::PAYMENT_PENDING, Status::PAYMENT_SCHEDULED])
+            ->first();
+
+        if (!$invoice) {
+            return null;
+        }
+
+        return OrderTransaction::query()
+            ->where('order_id', $invoice->id)
+            ->where('status', Status::TRANSACTION_PENDING)
+            ->orderBy('id', 'DESC')
+            ->first();
     }
 
     /**

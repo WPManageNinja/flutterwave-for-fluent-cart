@@ -315,7 +315,11 @@ class FctFlutterwaveHandler {
                     if (btn) that.resetPayButton(btn);
                 }
             } else {
-                that.handleFlutterwaveError(new Error(that.$t('Network error: ' + xhr.status)));
+                let message = that.$t('Payment confirmation failed');
+                try {
+                    message = JSON.parse(xhr.responseText)?.message || message;
+                } catch (e) {}
+                that.handleFlutterwaveError(new Error(message));
                 const btn = document.getElementById('fct-flutterwave-pay-button');
                 if (btn) that.resetPayButton(btn);
             }

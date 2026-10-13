@@ -373,13 +373,16 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
 
         } while ($hasMore);
 
+        $hasRefusedCharge = false;
         foreach ($flutterwaveTransactions as $flutterwaveTransaction) {
+            // The listing returns all statuses; only a successful charge is a payment.
+            if (!in_array(Arr::get($flutterwaveTransaction, 'status'), ['successful', 'succeeded'], true)) {
+                continue;
+            }
+
             // Flutterwave's created_at is when the remote charge happened; that
-            // is the settlement moment, not this resync's run time. The listing
-            // returns all statuses, so only a successful charge counts as settled.
-            $chargedAt = in_array(Arr::get($flutterwaveTransaction, 'status'), ['successful', 'succeeded'], true)
-                ? Arr::get($flutterwaveTransaction, 'created_at')
-                : null;
+            // is the settlement moment, not this resync's run time.
+            $chargedAt = Arr::get($flutterwaveTransaction, 'created_at');
             $settledAt = $chargedAt ? DateTime::anyTimeToGmt($chargedAt)->format('Y-m-d H:i:s') : null;
 
             $transaction = OrderTransaction::query()
@@ -397,6 +400,11 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                 ->first();
 
                 if ($transaction) {
+                    if (is_wp_error(FlutterwaveHelper::validateChargeCoversTransaction($flutterwaveTransaction, $transaction))) {
+                        $hasRefusedCharge = true;
+                        continue;
+                    }
+
                     if ($settledAt && empty($transaction->meta['settled_at'])) {
                         $transaction->meta = array_merge($transaction->meta ?? [], [
                             'settled_at' => $settledAt
@@ -406,7 +414,6 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
                     $transaction->update([
                         'vendor_charge_id' => $flutterwaveTransaction['id'],
                         'status'           => Status::TRANSACTION_SUCCEEDED,
-                        'total'            => FlutterwaveHelper::convertToLowestUnit($flutterwaveTransaction['amount'], $flutterwaveTransaction['currency']),
                     ]);
 
                     continue;
@@ -439,7 +446,13 @@ class FlutterwaveSubscriptions extends AbstractSubscriptionModule
             }
 
         }
-        
+
+        // The remote subscription is live once Flutterwave takes any amount; a refused
+        // charge must not move the local status (e.g. reactivate it).
+        if ($hasRefusedCharge) {
+            unset($updateData['status']);
+        }
+
         $subscriptionModel = SubscriptionService::syncSubscriptionStates($subscriptionModel, $updateData);
 
         return $subscriptionModel;

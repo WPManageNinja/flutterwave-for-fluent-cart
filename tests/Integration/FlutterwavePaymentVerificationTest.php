@@ -2,6 +2,7 @@
 
 namespace Tests\Integration;
 
+use FluentCart\Api\CurrencySettings;
 use FluentCart\Api\StoreSettings;
 use FluentCart\App\Helpers\CartHelper;
 use FluentCart\App\Helpers\Helper;
@@ -11,6 +12,7 @@ use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
 use FluentCart\App\Models\ProductVariation;
 use FluentCart\App\Modules\MultiCurrency\Services\CartCurrency;
+use FluentCart\App\Modules\MultiCurrency\Services\CurrencyContext;
 use FluentCart\App\Modules\MultiCurrency\Services\ExchangeRateService;
 use FluentCart\App\Modules\MultiCurrency\Services\MultiCurrencySettings;
 use FluentCart\App\Services\Payments\PaymentInstance;
@@ -35,6 +37,8 @@ class FlutterwavePaymentVerificationTest extends WPTestCase
         remove_all_filters('pre_http_request');
         remove_all_filters('flutterwave_fc/settings');
         $this->resetApiSettings();
+        unset($_COOKIE[CurrencyContext::COOKIE]);
+        CurrencyContext::reset();
         CartCurrency::reset();
         MultiCurrencySettings::clearCache();
         ExchangeRateService::flushCache();
@@ -190,6 +194,31 @@ class FlutterwavePaymentVerificationTest extends WPTestCase
             'successful and covering' => [50000, 'successful', 'succeeded', 'active'],
             'successful but short'    => [1, 'successful', 'pending', 'canceled'],
             'failed attempt'          => [50000, 'failed', 'pending', null],
+        ];
+    }
+
+    /**
+     * @dataProvider checkoutCurrencies
+     */
+    public function test_checkout_offers_flutterwave_only_in_a_currency_it_supports(string $currency, bool $offered): void
+    {
+        $this->presentCurrency('USD');
+        MultiCurrencySettings::save(['enabled' => 'yes', 'currencies' => [['code' => 'GBP'], ['code' => 'AUD']]]);
+        ExchangeRateService::record('GBP', '0.79');
+        ExchangeRateService::record('AUD', '1.52');
+        $_COOKIE[CurrencyContext::COOKIE] = $currency;
+        CurrencyContext::reset();
+
+        $this->assertSame($currency, CurrencySettings::get('currency'), 'the shopper\'s currency');
+        $this->assertSame($offered, (new FlutterwaveGateway())->isCurrencySupported());
+    }
+
+    public static function checkoutCurrencies(): array
+    {
+        return [
+            'store currency'          => ['USD', true],
+            'supported foreign'       => ['GBP', true],
+            'unsupported foreign'     => ['AUD', false],
         ];
     }
 

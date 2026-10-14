@@ -12,6 +12,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+use FluentCart\Api\CurrencySettings;
 use FluentCart\App\Helpers\Helper;
 use FluentCart\App\Helpers\Status;
 use FluentCart\Framework\Support\Arr;
@@ -92,6 +93,15 @@ class FlutterwaveGateway extends AbstractPaymentGateway
         add_filter('fluent_cart/payment_methods/flutterwave_settings', [$this, 'getSettings'], 10, 2);
 
         (new Confirmations\FlutterwaveConfirmations())->init();
+    }
+
+    /**
+     * Checkout hides the gateway in a currency Flutterwave can't take, instead
+     * of refusing it after the shopper picks it.
+     */
+    public function isCurrencySupported(): bool
+    {
+        return in_array(strtoupper((string) CurrencySettings::get('currency')), FlutterwaveHelper::getFlutterwaveSupportedCurrencies(), true);
     }
 
     public function makePaymentFromPaymentInstance(PaymentInstance $paymentInstance)

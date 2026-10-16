@@ -40,7 +40,7 @@ NGN, USD, EUR, GBP, GHS, KES, ZAR, TZS, UGX, RWF, XAF, XOF, ZMW, MWK, SLL, MZN, 
 
 * WordPress 5.6 or higher
 * PHP 7.4 or higher
-* FluentCart 1.2.5 or higher
+* FluentCart 2.2.0 or higher
 * Flutterwave merchant account
 
 == Installation ==

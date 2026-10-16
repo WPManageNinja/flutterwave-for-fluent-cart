@@ -40,13 +40,13 @@ function flutterwave_fc_check_dependencies() {
         return false;
     }
     
-    if (version_compare(FLUENTCART_VERSION, '1.2.5', '<')) {
+    if (version_compare(FLUENTCART_VERSION, '2.2.0', '<')) {
         add_action('admin_notices', function() {
             ?>
             <div class="notice notice-error">
                 <p>
                     <strong><?php esc_html_e('Flutterwave for FluentCart', 'flutterwave-for-fluent-cart'); ?></strong> 
-                    <?php esc_html_e('requires FluentCart version 1.2.5 or higher', 'flutterwave-for-fluent-cart'); ?>
+                    <?php esc_html_e('requires FluentCart version 2.2.0 or higher', 'flutterwave-for-fluent-cart'); ?>
                 </p>
             </div>
             <?php

@@ -13,7 +13,7 @@ use FluentCart\App\Models\Order;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
 use FluentCart\Framework\Support\Arr;
-use FluentCart\App\Events\Order\OrderRefund;
+use FluentCart\App\Services\Payments\Refund;
 use FluentCart\App\Events\Subscription\SubscriptionActivated;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
@@ -22,7 +22,6 @@ use FlutterwaveFluentCart\Confirmations\FlutterwaveConfirmations;
 use FlutterwaveFluentCart\FlutterwaveHelper;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\Subscriptions\FlutterwaveSubscriptions;
-use FlutterwaveFluentCart\Refund\FlutterwaveRefund;
 
 class FlutterwaveWebhook
 {
@@ -473,11 +472,13 @@ class FlutterwaveWebhook
             ]
         ];
 
-        $syncedRefund = (new FlutterwaveRefund())->createOrUpdateIpnRefund($refundData, $parentTransaction);
-        
-        if ($syncedRefund && $syncedRefund->wasRecentlyCreated) {
-            (new OrderRefund($order, $syncedRefund))->dispatch();
+        $recordedRefund = Refund::createOrRecordRefund($refundData, $parentTransaction);
 
+        if (is_wp_error($recordedRefund) && $recordedRefund->get_error_code() === 'refund_lock_timeout') {
+            $this->sendResponse(503, $recordedRefund->get_error_message());
+        }
+
+        if ($recordedRefund instanceof OrderTransaction && $recordedRefund->wasRecentlyCreated) {
             fluent_cart_add_log(
                 __('Flutterwave Refund Processed', 'flutterwave-for-fluent-cart'),
                 sprintf(
@@ -553,11 +554,13 @@ class FlutterwaveWebhook
             ]
         ];
 
-        $syncedRefund = (new FlutterwaveRefund())->createOrUpdateIpnRefund($refundData, $parentTransaction);
-        
-        if ($syncedRefund && $syncedRefund->wasRecentlyCreated) {
-            (new OrderRefund($order, $syncedRefund))->dispatch();
+        $recordedRefund = Refund::createOrRecordRefund($refundData, $parentTransaction);
 
+        if (is_wp_error($recordedRefund) && $recordedRefund->get_error_code() === 'refund_lock_timeout') {
+            $this->sendResponse(503, $recordedRefund->get_error_message());
+        }
+
+        if ($recordedRefund instanceof OrderTransaction && $recordedRefund->wasRecentlyCreated) {
             fluent_cart_add_log(
                 __('Flutterwave Transfer/Refund Processed', 'flutterwave-for-fluent-cart'),
                 sprintf(

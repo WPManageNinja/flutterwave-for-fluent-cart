@@ -7,9 +7,6 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-use FluentCart\App\Helpers\Status;
-use FluentCart\App\Models\OrderTransaction;
-use FluentCart\App\Services\Payments\PaymentHelper;
 use FluentCart\Framework\Support\Arr;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\FlutterwaveHelper;
@@ -58,45 +55,5 @@ class FlutterwaveRefund
         }
 
         return $refundId;
-    }
-
-    public static function createOrUpdateIpnRefund($refundData, $parentTransaction)
-    {
-        $allRefunds = OrderTransaction::query()
-            ->where('order_id', $refundData['order_id'])
-            ->where('transaction_type', Status::TRANSACTION_TYPE_REFUND)
-            ->orderBy('id', 'DESC')
-            ->get();
-
-        if ($allRefunds->isEmpty()) {
-            $refundData['uuid'] = md5(time() . wp_generate_uuid4());
-            $createdRefund = OrderTransaction::query()->create($refundData);
-            PaymentHelper::updateTransactionRefundedTotal($parentTransaction, $createdRefund->total);
-            return $createdRefund;
-        }
-
-        $currentRefundId = Arr::get($refundData, 'vendor_charge_id', '');
-
-        foreach ($allRefunds as $refund) {
-            if ($refund->vendor_charge_id == $currentRefundId) {
-                if ($refund->total != $refundData['total']) {
-                    $refund->fill($refundData);
-                    $refund->save();
-                }
-                return $refund;
-            }
-
-            if (!$refund->vendor_charge_id && $refund->total == $refundData['total']) {
-                $refund->fill($refundData);
-                $refund->save();
-                return $refund;
-            }
-        }
-
-        $refundData['uuid'] = md5(time() . wp_generate_uuid4());
-        $createdRefund = OrderTransaction::query()->create($refundData);
-        PaymentHelper::updateTransactionRefundedTotal($parentTransaction, $createdRefund->total);
-
-        return $createdRefund;
     }
 }

@@ -7,13 +7,14 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+use FluentCart\App\Helpers\Helper;
 use FluentCart\App\Helpers\Status;
 use FluentCart\App\Helpers\StatusHelper;
 use FluentCart\App\Models\Order;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Models\Subscription;
 use FluentCart\Framework\Support\Arr;
-use FluentCart\App\Events\Order\OrderRefund;
+use FluentCart\App\Services\Payments\Refund;
 use FluentCart\App\Events\Subscription\SubscriptionActivated;
 use FluentCart\App\Modules\Subscriptions\Services\SubscriptionService;
 use FluentCart\App\Services\DateTime\DateTime;
@@ -22,7 +23,6 @@ use FlutterwaveFluentCart\Confirmations\FlutterwaveConfirmations;
 use FlutterwaveFluentCart\FlutterwaveHelper;
 use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\Subscriptions\FlutterwaveSubscriptions;
-use FlutterwaveFluentCart\Refund\FlutterwaveRefund;
 
 class FlutterwaveWebhook
 {
@@ -53,7 +53,7 @@ class FlutterwaveWebhook
 
         $data = json_decode($payload, true);
         
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
             http_response_code(400);
             exit('Invalid JSON payload'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
         }
@@ -63,6 +63,15 @@ class FlutterwaveWebhook
         if (!$this->verify($payload)) {
             http_response_code(401);
             exit('Invalid signature / Verification failed'); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
+        }
+
+        // Refund callbacks can arrive without the usual event/data envelope.
+        if (!Arr::get($data, 'event') && isset($data['TransactionId'], $data['AmountRefunded'], $data['id'])) {
+            $data = ['event' => 'refund.completed', 'data' => $data];
+        }
+
+        if (Arr::get($data, 'event') === 'refund.completed' && is_array(Arr::get($data, 'data'))) {
+            $data['data'] = $this->normalizeRefundData(Arr::get($data, 'data'));
         }
 
         $order = $this->getFluentCartOrder($data);
@@ -84,7 +93,7 @@ class FlutterwaveWebhook
         exit('Webhook received but not handled: ' . esc_html($event)); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Intentional webhook response
     }
 
-    private function getWebhookPayload()
+    protected function getWebhookPayload()
     {
         $input = file_get_contents('php://input');
         
@@ -132,10 +141,9 @@ class FlutterwaveWebhook
         $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
         
         if (!$storedHash) {
-            // If no webhook secret is configured, allow the webhook but log a warning
             fluent_cart_add_log(
                 __('Flutterwave Webhook Secret Hash Not Configured', 'flutterwave-for-fluent-cart'),
-                'No webhook secret is configured for Flutterwave. Allowing the webhook but it is not recommended.',
+                'No webhook secret is configured for Flutterwave. Rejecting the webhook.',
                 'warning',
                 [
                     'module_name' => 'payment',
@@ -153,17 +161,16 @@ class FlutterwaveWebhook
         $storedHash = (new FlutterwaveSettingsBase())->getWebhookSecretHash();
     
         if (!$storedHash) {
-            // If no webhook secret is configured, allow the webhook but log a warning
             fluent_cart_add_log(
                 __('Flutterwave Webhook Secret Hash Not Configured', 'flutterwave-for-fluent-cart'),
-                'No webhook secret is configured for Flutterwave. Allowing the webhook but it is not recommended.',
+                'No webhook secret is configured for Flutterwave. Rejecting the webhook.',
                 'warning',
                 [
                     'module_name' => 'payment',
                     'module_id'   => 'flutterwave',
                 ]
             );
-            return true;
+            return false;
         }
 
         $expectedSignature = hash_hmac('sha512', $payload, $storedHash);
@@ -405,13 +412,17 @@ class FlutterwaveWebhook
     public function handleRefundCompleted($data)
     {
         $refund = Arr::get($data, 'payload');
+        if (!is_array($refund)) {
+            $this->sendResponse(400, 'Invalid refund payload.');
+        }
+        $refund = $this->normalizeRefundData($refund);
         
         $refundId = Arr::get($refund, 'id');
-        $refundStatus = Arr::get($refund, 'status');
+        $refundStatus = Arr::get($refund, 'status', '');
         
-        // Only process completed refunds
-        if ($refundStatus !== 'completed' && $refundStatus !== 'successful') {
-            $this->sendResponse(200, 'Refund not completed, skipping. Status: ' . sanitize_text_field($refundStatus));
+        $transactionStatus = $this->refundTransactionStatus($refundStatus);
+        if ($transactionStatus === '') {
+            $this->sendResponse(200, 'Unknown refund status, skipping.');
         }
 
         // Get the original transaction ID from the refund data
@@ -449,16 +460,13 @@ class FlutterwaveWebhook
         }
 
         // Convert amount - Flutterwave sends amount in main currency units
-        $amount = FlutterwaveHelper::convertToLowestUnit(
-            Arr::get($refund, 'amount_refunded', Arr::get($refund, 'amount')),
-            Arr::get($refund, 'currency', $parentTransaction->currency)
-        );
+        $amount = Helper::toCent(Arr::get($refund, 'amount_refunded', Arr::get($refund, 'amount')));
         $refundCurrency = Arr::get($refund, 'currency', $parentTransaction->currency);
 
         $refundData = [
             'order_id'           => $order->id,
             'transaction_type'   => Status::TRANSACTION_TYPE_REFUND,
-            'status'             => Status::TRANSACTION_REFUNDED,
+            'status'             => $transactionStatus,
             'payment_method'     => 'flutterwave',
             'payment_mode'       => $parentTransaction->payment_mode,
             'vendor_charge_id'   => $refundId,
@@ -473,11 +481,13 @@ class FlutterwaveWebhook
             ]
         ];
 
-        $syncedRefund = (new FlutterwaveRefund())->createOrUpdateIpnRefund($refundData, $parentTransaction);
-        
-        if ($syncedRefund && $syncedRefund->wasRecentlyCreated) {
-            (new OrderRefund($order, $syncedRefund))->dispatch();
+        $recordedRefund = Refund::createOrRecordRefund($refundData, $parentTransaction);
 
+        if (is_wp_error($recordedRefund) && $recordedRefund->get_error_code() === 'refund_lock_timeout') {
+            $this->sendResponse(503, $recordedRefund->get_error_message());
+        }
+
+        if ($recordedRefund instanceof OrderTransaction && $recordedRefund->wasRecentlyCreated && $recordedRefund->status === Status::TRANSACTION_REFUNDED) {
             fluent_cart_add_log(
                 __('Flutterwave Refund Processed', 'flutterwave-for-fluent-cart'),
                 sprintf(
@@ -496,6 +506,42 @@ class FlutterwaveWebhook
         }
 
         $this->sendResponse(200, 'Refund processed successfully');
+    }
+
+    private function normalizeRefundData(array $refund): array
+    {
+        foreach (['transaction_id' => 'TransactionId', 'amount_refunded' => 'AmountRefunded', 'flw_ref' => 'FlwRef', 'comment' => 'comments'] as $field => $alias) {
+            if (!isset($refund[$field]) && isset($refund[$alias])) {
+                $refund[$field] = Arr::get($refund, $alias);
+            }
+        }
+
+        foreach (['id', 'transaction_id', 'flw_ref', 'status', 'currency', 'comment'] as $field) {
+            if (array_key_exists($field, $refund)) {
+                $value = Arr::get($refund, $field);
+                $refund[$field] = is_scalar($value) ? sanitize_text_field((string) $value) : '';
+            }
+        }
+
+        return $refund;
+    }
+
+    private function refundTransactionStatus(string $status): string
+    {
+        if (in_array($status, ['completed-bank-transfer', 'completed-momo', 'completed-mpgs', 'completed-offline', 'completed-preauth', 'successful'], true)) {
+            return Status::TRANSACTION_REFUNDED;
+        }
+
+        // Flutterwave's plain "completed" means initiated, awaiting disbursement.
+        if (in_array($status, ['completed', 'pending', 'pending-void', 'pending-momo', 'pending-bank-transfer', 'pending-mpgs', 'processing'], true)) {
+            return Status::TRANSACTION_PENDING;
+        }
+
+        if ($status === 'failed') {
+            return Status::TRANSACTION_FAILED;
+        }
+
+        return '';
     }
 
     public function handleTransferCompleted($data)
@@ -553,11 +599,13 @@ class FlutterwaveWebhook
             ]
         ];
 
-        $syncedRefund = (new FlutterwaveRefund())->createOrUpdateIpnRefund($refundData, $parentTransaction);
-        
-        if ($syncedRefund && $syncedRefund->wasRecentlyCreated) {
-            (new OrderRefund($order, $syncedRefund))->dispatch();
+        $recordedRefund = Refund::createOrRecordRefund($refundData, $parentTransaction);
 
+        if (is_wp_error($recordedRefund) && $recordedRefund->get_error_code() === 'refund_lock_timeout') {
+            $this->sendResponse(503, $recordedRefund->get_error_message());
+        }
+
+        if ($recordedRefund instanceof OrderTransaction && $recordedRefund->wasRecentlyCreated) {
             fluent_cart_add_log(
                 __('Flutterwave Transfer/Refund Processed', 'flutterwave-for-fluent-cart'),
                 sprintf(

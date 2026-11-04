@@ -4,7 +4,7 @@ Tags: flutterwave, payment gateway, ecommerce, subscriptions, africa payments
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,9 @@ Yes, Flutterwave provides test API keys that you can use to test the integration
 Yes, the plugin supports recurring payments through Flutterwave's payment plans feature.
 
 == Changelog ==
+
+= 1.0.3 =
+* Improves webhook refund flow
 
 = 1.0.2 =
 * Adds support for store managed subscriptions

@@ -30,7 +30,7 @@ class FlutterwaveAPI
         return self::$settings;
     }
 
-    private static function request($endpoint, $method = 'GET', $data = [])
+    private static function request($endpoint, $method = 'GET', $data = [], $secretKey = null)
     {
         if (empty($endpoint) || !is_string($endpoint)) {
             return new \WP_Error('invalid_endpoint', 'Invalid API endpoint provided');
@@ -42,7 +42,9 @@ class FlutterwaveAPI
         }
 
         $url = self::$baseUrl . $endpoint;
-        $secretKey = self::getSettings()->getSecretKey();
+        if ($secretKey === null) {
+            $secretKey = self::getSettings()->getSecretKey();
+        }
 
         if (!$secretKey) {
             return new \WP_Error('missing_api_key', 'Flutterwave API key is not configured');
@@ -89,9 +91,9 @@ class FlutterwaveAPI
         return $decoded;
     }
 
-    public static function getFlutterwaveObject($endpoint, $params = [])
+    public static function getFlutterwaveObject($endpoint, $params = [], $secretKey = null)
     {
-        return self::request($endpoint, 'GET', $params);
+        return self::request($endpoint, 'GET', $params, $secretKey);
     }
 
     public static function createFlutterwaveObject($endpoint, $data = [])

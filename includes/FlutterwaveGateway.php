@@ -20,6 +20,7 @@ use FluentCart\App\Services\Payments\PaymentInstance;
 use FluentCart\App\Models\OrderTransaction;
 use FluentCart\App\Modules\PaymentMethods\Core\AbstractPaymentGateway;
 use FluentCart\App\Services\PluginInstaller\PaymentAddonManager;
+use FlutterwaveFluentCart\API\FlutterwaveAPI;
 use FlutterwaveFluentCart\Settings\FlutterwaveSettingsBase;
 use FlutterwaveFluentCart\Subscriptions\FlutterwaveSubscriptions;
 use FlutterwaveFluentCart\Refund\FlutterwaveRefund;
@@ -348,6 +349,48 @@ class FlutterwaveGateway extends AbstractPaymentGateway
                 'label' => __('Webhook Configuration', 'flutterwave-for-fluent-cart'),
                 'type'  => 'html_attr'
             ],
+        ];
+    }
+
+    /**
+     * Read-only check of the saved secret key: GET /v3/balances
+     * (https://developer.flutterwave.com/v3.0/reference/get-all-wallet-balances).
+     */
+    public function testConnection(string $mode)
+    {
+        $secretKey = (string) $this->settings->getSecretKey($mode);
+
+        if (!$secretKey) {
+            return new \WP_Error('missing_credentials', $mode === 'live'
+                ? __('No live secret key is saved.', 'flutterwave-for-fluent-cart')
+                : __('No test secret key is saved.', 'flutterwave-for-fluent-cart'));
+        }
+
+        $isTestKey = strpos($secretKey, 'FLWSECK_TEST-') === 0;
+        $isLiveKey = strpos($secretKey, 'FLWSECK-') === 0;
+
+        if ($mode === 'live' && $isTestKey) {
+            return new \WP_Error('mode_mismatch', __('The live secret key field holds a test key. Paste a key that starts with FLWSECK-.', 'flutterwave-for-fluent-cart'));
+        }
+
+        if ($mode === 'test' && $isLiveKey) {
+            return new \WP_Error('mode_mismatch', __('The test secret key field holds a live key. Paste a key that starts with FLWSECK_TEST-.', 'flutterwave-for-fluent-cart'));
+        }
+
+        $balances = FlutterwaveAPI::getFlutterwaveObject('balances', [], $secretKey);
+
+        if (is_wp_error($balances)) {
+            return $balances;
+        }
+
+        if (Arr::get($balances, 'status') !== 'success') {
+            return new \WP_Error('flutterwave_api_error', Arr::get($balances, 'message') ?: __('Unknown Flutterwave API error', 'flutterwave-for-fluent-cart'));
+        }
+
+        return [
+            'message' => $mode === 'live'
+                ? __('Flutterwave accepted the live secret key.', 'flutterwave-for-fluent-cart')
+                : __('Flutterwave accepted the test secret key.', 'flutterwave-for-fluent-cart')
         ];
     }
 
